@@ -687,7 +687,7 @@ function App() {
   const onMoveRight = () => { if (tryMove(0, 1, 0)) flashPulse(); };
   const onSoftDrop = () => {
     if (tryMove(1, 0, 0)) flashPulse();
-    else if (active?.kind === "save") lockActive();
+    else lockActive();
   };
 
   const onDrop = () => lockActive();
@@ -730,16 +730,21 @@ function App() {
     }
   }, [active, spawnQueue, saveQueue, grid]);
 
-  // 낙하 큐 소진 후 derive와 보드·풀 동기화 (부피 정확도 + 빨간/노란 보정)
+  // 낙하 큐 모두 소진 후 풀·기절 상태만 동기화 (보드는 블록 DROP으로만 쌓음)
   useEffect(() => {
     if (active || spawnQueue.length || saveQueue.length) return;
     if (!pendingGridReconcile.current) return;
     pendingGridReconcile.current = false;
     const derived = deriveGameState(transactions);
-    setGrid(derived.grid);
     setPool(derived.pool);
     setGhostMode(derived.ghostMode);
-  }, [active, spawnQueue, saveQueue, transactions]);
+    const t = sumTxTotals(transactions);
+    const inc = t.income > 0 ? t.income : DEFAULT_INCOME;
+    const target = targetBoardCells(inc, t.expense, t.savings);
+    if (countOccupiedCells(grid) < target) {
+      setGrid(derived.grid);
+    }
+  }, [active, spawnQueue, saveQueue, transactions, grid]);
 
   // ── AUTO FALL: 지출·저축 블록 자동 낙하 (좌우·회전은 저축만) ──
   useEffect(() => {
@@ -752,7 +757,8 @@ function App() {
         ([r, c]) => r >= ROWS || c < 0 || c >= COLS || (grid[r] && grid[r][c])
       );
       if (blocked) {
-        lockActive();
+        // ★ 바닥·장애물에 닿아도 자동 착지하지 않음 — DROP으로만 고정 (블록 하나씩)
+        return;
       } else {
         setActive((a) => a ? { ...a, pos: { r: a.pos.r + 1, c: a.pos.c } } : a);
       }
