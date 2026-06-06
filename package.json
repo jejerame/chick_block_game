@@ -1,0 +1,12 @@
+{
+  "name": "chick-block-ledger",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node scripts/test-volume.mjs"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.9",
+    "@babel/preset-react": "^7.26.3"
+  }
+}

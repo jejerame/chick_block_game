@@ -1,0 +1,9 @@
+# 배포에 불필요한 대용량·백업 파일 (업로드만 느려짐)
+병아리 블록 가계부.html
+병아리 테트리스 가계부.html
+classic/
+v1_*
+handoff/
+_standalone*
+standalone_src.html
+uploads/

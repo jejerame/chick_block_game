@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>병아리 블록 가계부</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+<meta name="apple-mobile-web-app-title" content="병아리 블록" />
+<meta name="theme-color" content="#0B1130" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+<link rel="icon" type="image/png" href="assets/apple-touch-icon.png" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="styles.css?v=33" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'" />
+<noscript>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" />
+</noscript>
+<style>
+  #boot-splash {
+    min-height: 100vh;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #0B1130;
+    color: #FFE899;
+    font-family: system-ui, -apple-system, sans-serif;
+    text-align: center;
+    padding: 24px;
+  }
+  #boot-splash .boot-title { font-size: 18px; font-weight: 700; margin: 0; }
+  #boot-splash .boot-sub { font-size: 13px; color: #B7C9FF; margin: 0; opacity: 0.9; }
+  #boot-splash .boot-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #FFE899;
+    animation: boot-pulse 1s ease-in-out infinite;
+  }
+  @keyframes boot-pulse { 0%,100%{opacity:.35;transform:scale(.85)} 50%{opacity:1;transform:scale(1)} }
+</style>
+<script>
+(function () {
+  var root = document.documentElement;
+  var standalone = !!(window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches);
+  root.classList.toggle("is-standalone", standalone);
+  root.classList.toggle("is-safari-browser", !standalone);
+  if (window.matchMedia("(max-width: 520px)").matches) root.classList.add("native-device");
+  function syncVv() {
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    root.style.setProperty("--vv-h", h + "px");
+    root.style.setProperty("--vv-top", (vv ? vv.offsetTop : 0) + "px");
+  }
+  syncVv();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncVv);
+    window.visualViewport.addEventListener("scroll", syncVv);
+  }
+  window.addEventListener("resize", syncVv);
+})();
+</script>
+</head>
+<body>
+<div id="root">
+  <div id="boot-splash" aria-live="polite">
+    <p class="boot-title">병아리 블록 가계부</p>
+    <div class="boot-dot" aria-hidden="true"></div>
+    <p class="boot-sub">불러오는 중…</p>
+  </div>
+</div>
+
+<script defer src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script defer src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script defer src="dist/chick.bundle.js?v=33"></script>
+</body>
+</html>
