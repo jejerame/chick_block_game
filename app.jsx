@@ -377,8 +377,8 @@ function App() {
     applyDerivedState(deriveGameState(txs));
   }, [applyDerivedState]);
 
-  /** 낙하 애니메이션 후 보드·풀 미세 보정 (즉시 전체 덮어쓰기는 신규 입력만) */
-  const pendingGridReconcile = useRef(false);
+  /** 블록 DROP 세션 중에는 derive로 보드를 덮어쓰지 않음 */
+  const blockDropSession = useRef(false);
 
   const getVolumeNeed = useCallback((txs) => {
     const t = sumTxTotals(txs);
@@ -447,7 +447,7 @@ function App() {
     const n = Math.max(1, Math.ceil(need / AVG_CELLS_PER_BLOCK));
     const perAmt = Math.max(1, Math.round(amount / n));
     const blocks = Array.from({ length: n }, () => makeSaveBlock(perAmt, label));
-    pendingGridReconcile.current = true;
+    blockDropSession.current = true;
     if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
       const [head, ...rest] = blocks;
       setActive({ ...head, pos: { r: 0, c: pickSmartCol(grid, "O", 0) } });
@@ -460,33 +460,37 @@ function App() {
 
   const queueSpendBlocks = (amount, label, need) => {
     if (need <= 0) return;
-    pendingGridReconcile.current = true;
+    blockDropSession.current = true;
     if (amount >= TIER_THRESHOLD.orange) {
       const n = Math.max(1, Math.ceil(need / AVG_CELLS_PER_BLOCK));
       const perAmt = Math.max(1, Math.round(amount / n));
-      setSpawnQueue((q) => [
-        ...q,
-        ...Array.from({ length: n }, () => makeBlock("red", perAmt, label)),
-      ]);
+      const blocks = Array.from({ length: n }, () => makeBlock("red", perAmt, label));
+      if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
+        const [head, ...rest] = blocks;
+        setActive({ ...head, pos: { r: 0, c: pickSmartCol(grid, head.shape, 0) } });
+        if (rest.length) setSpawnQueue(rest);
+      } else {
+        setSpawnQueue((q) => [...q, ...blocks]);
+      }
       showToast("red", label);
       return;
     }
     if (amount < MONO_MAX) {
       dropMono(amount, label, need);
-      pendingGridReconcile.current = false;
+      blockDropSession.current = false;
       return;
     }
-    setPool((p) => {
-      const dep = applyPoolDeposit(p, amount, TIER_THRESHOLD);
-      if (dep.tier && need > 0) {
-        setSpawnQueue((q) => [
-          ...q,
-          makeBlock(dep.tier, dep.thresholdValue, TIER_HINT_LABEL[dep.tier]),
-        ]);
-        showToast(dep.tier, label);
+    const dep = applyPoolDeposit(pool, amount, TIER_THRESHOLD);
+    setPool(dep.pool);
+    if (dep.tier && need > 0) {
+      const blk = makeBlock(dep.tier, dep.thresholdValue, TIER_HINT_LABEL[dep.tier]);
+      if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
+        setActive({ ...blk, pos: { r: 0, c: pickSmartCol(grid, blk.shape, 0) } });
+      } else {
+        setSpawnQueue((q) => [...q, blk]);
       }
-      return dep.pool;
-    });
+      showToast(dep.tier, label);
+    }
   };
 
   /** 내 정보 슬라이더 → 수입 거래 1건으로 동기화 (상단 수입과 항상 동일) */
@@ -712,39 +716,36 @@ function App() {
     setGhostMode(false);
   };
 
-  // ── AUTO SPAWN: 지출 큐 → 저축 큐 순서로 활성화 ─────────────
+  const gridRef = useRef(grid);
+  gridRef.current = grid;
+
+  // ── AUTO SPAWN: 지출 큐 → 저축 큐 순서로 활성화 (한 번에 하나씩)
   useEffect(() => {
     if (active) return;
     if (spawnQueue.length > 0) {
       const [head, ...rest] = spawnQueue;
-      const smartC = pickSmartCol(grid, head.shape, head.rot || 0);
+      const smartC = pickSmartCol(gridRef.current, head.shape, head.rot || 0);
       setSpawnQueue(rest);
       setActive({ ...head, pos: { ...head.pos, c: smartC } });
       return;
     }
     if (saveQueue.length > 0) {
       const [head, ...rest] = saveQueue;
-      const col = pickSmartCol(grid, head.shape, head.rot || 0);
+      const col = pickSmartCol(gridRef.current, head.shape, head.rot || 0);
       setSaveQueue(rest);
       setActive({ ...head, pos: { r: 0, c: col } });
     }
-  }, [active, spawnQueue, saveQueue, grid]);
+  }, [active, spawnQueue, saveQueue]);
 
-  // 낙하 큐 모두 소진 후 풀·기절 상태만 동기화 (보드는 블록 DROP으로만 쌓음)
+  // DROP 세션 종료 후 풀·기절만 동기화 (보드는 DROP으로만 쌓음 — setGrid 금지)
   useEffect(() => {
     if (active || spawnQueue.length || saveQueue.length) return;
-    if (!pendingGridReconcile.current) return;
-    pendingGridReconcile.current = false;
+    if (!blockDropSession.current) return;
+    blockDropSession.current = false;
     const derived = deriveGameState(transactions);
     setPool(derived.pool);
     setGhostMode(derived.ghostMode);
-    const t = sumTxTotals(transactions);
-    const inc = t.income > 0 ? t.income : DEFAULT_INCOME;
-    const target = targetBoardCells(inc, t.expense, t.savings);
-    if (countOccupiedCells(grid) < target) {
-      setGrid(derived.grid);
-    }
-  }, [active, spawnQueue, saveQueue, transactions, grid]);
+  }, [active, spawnQueue, saveQueue, transactions]);
 
   // ── AUTO FALL: 지출·저축 블록 자동 낙하 (좌우·회전은 저축만) ──
   useEffect(() => {
