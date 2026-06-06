@@ -371,7 +371,7 @@ window.GAME = (() => {
     return Math.round(ratio * BOARD_CELL_COUNT);
   }
 
-  /** 목표 셀 수까지 낱알로 보정 (테트로미노 배치 실패 시 100% 미달 방지) */
+  /** 목표 셀 수까지 보정 — spend는 빨간 블록/낱알만 (amount=1 흰 기절 낱알 금지) */
   function syncGridToTarget(grid, targetTotal, kind) {
     let g = grid;
     let guard = 0;
@@ -385,7 +385,23 @@ window.GAME = (() => {
         ng[r][c] = { kind: "save", tier: "save", amount: 1 };
         g = ng;
       } else {
-        g = placeMonoOnGrid(g, 1);
+        const tryBlock = lockBlockOnGrid(g, "red", 50_000, "지출", `topup-${guard}`);
+        if (countOccupiedCells(tryBlock) > before) {
+          g = tryBlock;
+        } else {
+          const cell = pickFillCell(g);
+          if (!cell) break;
+          const [r, c] = cell;
+          const ng = cloneGrid(g);
+          ng[r][c] = {
+            kind: "spend",
+            tier: "blue",
+            mono: true,
+            subtype: "red",
+            amount: MONO_RED,
+          };
+          g = hardenFullRows(ng).grid;
+        }
       }
       if (countOccupiedCells(g) <= before) break;
     }
@@ -801,7 +817,6 @@ window.GAME = (() => {
     { id: "fs4", type: "spend",  label: "데이트",   amount:   58_000, categoryTop: "커플",     categorySub: "데이트비용", usageCount: 11 },
     { id: "fs5", type: "spend",  label: "넷플릭스", amount:   13_500, categoryTop: "구독",     categorySub: "OTT",        usageCount:  6 },
     { id: "fs6", type: "spend",  label: "사료",     amount:   45_000, categoryTop: "반려동물", categorySub: "사료",       usageCount:  4 },
-    { id: "fi1", type: "income", label: "월급",     amount: 3_200_000, categoryTop: "수입",    categorySub: "급여",       usageCount:  1 },
     { id: "fi2", type: "income", label: "용돈",     amount:   100_000, categoryTop: "수입",    categorySub: "용돈",       usageCount:  3 },
     { id: "fv1", type: "save",   label: "비상금",   amount:    30_000, categoryTop: "저축",    categorySub: "비상금",     usageCount:  8 },
     { id: "fv2", type: "save",   label: "주택청약", amount:   100_000, categoryTop: "저축",    categorySub: "주택청약",   usageCount: 12 },

@@ -7,8 +7,8 @@ const {
   makeLandingHeroGrid, makeEmptyHomePreviewGrid, deriveGameState, sumTxTotals, deriveYearPoolBadges, savePoolTrophyYear, collectBadgeYears,
   loadChickPersistState, saveChickPersistState,
   buildChickBackup, parseChickBackup, transactionsToCSV, downloadTextFile, backupFilename,
-  getThresholds, getTargetSpend, isOverBudget, pickSmartCol,
-  hardenFullRows, computeGoalRow,
+  getThresholds, getTargetSpend, isOverBudget, TIER_HINT_LABEL, applyPoolDeposit, pickShapeFor, pickRandomCol, pickSmartCol,
+  MONO_MAX, monoSubtype, pickFillCell, hardenFullRows, targetBoardCells, countOccupiedCells, AVG_CELLS_PER_BLOCK, computeGoalRow,
   INITIAL_FAVORITES, DEFAULT_INCOME,
 } = window.GAME;
 
@@ -54,6 +54,12 @@ function ensureIncomeTransaction(transactions, incomeHint) {
   ];
 }
 
+function sanitizeFavorites(favs) {
+  return favs.filter(
+    (f) => f.id !== "fi1" && !(f.type === "income" && f.amount === 3_200_000 && f.label === "월급")
+  );
+}
+
 function bootAppState() {
   const saved = loadChickPersistState();
   if (saved) {
@@ -61,14 +67,14 @@ function bootAppState() {
     const derived = deriveGameState(transactions);
     return {
       transactions,
-      favorites: saved.favorites.length ? saved.favorites : INITIAL_FAVORITES,
+      favorites: sanitizeFavorites(saved.favorites.length ? saved.favorites : INITIAL_FAVORITES),
       savingsGoalPct: saved.savingsGoalPct,
       derived,
     };
   }
   return {
     transactions: INITIAL_TRANSACTIONS,
-    favorites: INITIAL_FAVORITES,
+    favorites: sanitizeFavorites(INITIAL_FAVORITES),
     savingsGoalPct: 20,
     derived: INITIAL_DERIVED,
   };
@@ -371,6 +377,118 @@ function App() {
     applyDerivedState(deriveGameState(txs));
   }, [applyDerivedState]);
 
+  /** 낙하 애니메이션 후 보드·풀 미세 보정 (즉시 전체 덮어쓰기는 신규 입력만) */
+  const pendingGridReconcile = useRef(false);
+
+  const getVolumeNeed = useCallback((txs) => {
+    const t = sumTxTotals(txs);
+    const inc = t.income > 0 ? t.income : DEFAULT_INCOME;
+    const target = targetBoardCells(inc, t.expense, t.savings);
+    return Math.max(0, target - countOccupiedCells(grid));
+  }, [grid]);
+
+  const makeBlock = (tier, amount, label) => {
+    const shape = pickShapeFor(tier);
+    const col = pickRandomCol(shape);
+    return {
+      shape, kind: "spend", tier,
+      amount, label,
+      pos: { r: 0, c: col },
+      rot: 0,
+      auto: true,
+    };
+  };
+
+  const showToast = (tier, label) => {
+    setFloatToast({ tier, label, t: Date.now() });
+    setTimeout(() => setFloatToast(null), 1400);
+  };
+
+  const makeSaveBlock = (amount, label) => ({
+    shape: "O",
+    kind: "save",
+    tier: "save",
+    amount,
+    label: label || "저축",
+    pos: { r: 0, c: 0 },
+    rot: 0,
+    auto: true,
+  });
+
+  const dropMono = (amount, label, cellsNeeded) => {
+    if (!cellsNeeded || cellsNeeded <= 0) return;
+    const perCell = Math.max(1, Math.round(amount / cellsNeeded));
+    setGrid((g) => {
+      let ng = g;
+      let lastFlash = null;
+      let remaining = cellsNeeded;
+      while (remaining > 0) {
+        const before = countOccupiedCells(ng);
+        const cell = pickFillCell(ng);
+        if (!cell) break;
+        const [r, c] = cell;
+        const subtype = monoSubtype(perCell);
+        const next = ng.map((row) => row.slice());
+        next[r][c] = { kind: "spend", tier: "blue", mono: true, subtype, amount: perCell };
+        ng = applyHarden(next);
+        const added = countOccupiedCells(ng) - before;
+        if (added <= 0) break;
+        remaining -= added;
+        lastFlash = { r, c, subtype, t: Date.now() };
+      }
+      if (lastFlash) setMonoFlash(lastFlash);
+      return ng;
+    });
+    flashPulse();
+  };
+
+  const queueSaveBlocks = (amount, label, need) => {
+    if (need <= 0) return;
+    const n = Math.max(1, Math.ceil(need / AVG_CELLS_PER_BLOCK));
+    const perAmt = Math.max(1, Math.round(amount / n));
+    const blocks = Array.from({ length: n }, () => makeSaveBlock(perAmt, label));
+    pendingGridReconcile.current = true;
+    if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
+      const [head, ...rest] = blocks;
+      setActive({ ...head, pos: { r: 0, c: pickSmartCol(grid, "O", 0) } });
+      if (rest.length) setSaveQueue(rest);
+    } else {
+      setSaveQueue((q) => [...q, ...blocks]);
+    }
+    flashPulse();
+  };
+
+  const queueSpendBlocks = (amount, label, need) => {
+    if (need <= 0) return;
+    pendingGridReconcile.current = true;
+    if (amount >= TIER_THRESHOLD.orange) {
+      const n = Math.max(1, Math.ceil(need / AVG_CELLS_PER_BLOCK));
+      const perAmt = Math.max(1, Math.round(amount / n));
+      setSpawnQueue((q) => [
+        ...q,
+        ...Array.from({ length: n }, () => makeBlock("red", perAmt, label)),
+      ]);
+      showToast("red", label);
+      return;
+    }
+    if (amount < MONO_MAX) {
+      dropMono(amount, label, need);
+      pendingGridReconcile.current = false;
+      return;
+    }
+    setPool((p) => {
+      const dep = applyPoolDeposit(p, amount, TIER_THRESHOLD);
+      if (dep.tier && need > 0) {
+        setSpawnQueue((q) => [
+          ...q,
+          makeBlock(dep.tier, dep.thresholdValue, TIER_HINT_LABEL[dep.tier]),
+        ]);
+        showToast(dep.tier, label);
+      }
+      return dep.pool;
+    });
+  };
+
   /** 내 정보 슬라이더 → 수입 거래 1건으로 동기화 (상단 수입과 항상 동일) */
   const syncIncomeToAmount = useCallback((target) => {
     const amount = Math.max(0, target);
@@ -439,10 +557,23 @@ function App() {
     };
     const nextTxs = [...transactions, newTx];
     setTransactions(nextTxs);
-    recomputeFromTransactions(nextTxs);
+
     if (type === "income") {
+      recomputeFromTransactions(nextTxs);
       setGoalBouncing(true);
       window.setTimeout(() => setGoalBouncing(false), 600);
+    } else if (type === "spend") {
+      const need = getVolumeNeed(nextTxs);
+      const derived = deriveGameState(nextTxs);
+      if (amount >= TIER_THRESHOLD.orange || amount < MONO_MAX) {
+        setPool(derived.pool);
+      }
+      queueSpendBlocks(amount, catLabel, need);
+    } else if (type === "save") {
+      const need = getVolumeNeed(nextTxs);
+      const derived = deriveGameState(nextTxs);
+      setPool(derived.pool);
+      queueSaveBlocks(amount, catLabel, need);
     }
 
     // 즐겨찾기 사용횟수 +1 또는 신규 즐겨찾기 등록
@@ -598,6 +729,17 @@ function App() {
       setActive({ ...head, pos: { r: 0, c: col } });
     }
   }, [active, spawnQueue, saveQueue, grid]);
+
+  // 낙하 큐 소진 후 derive와 보드·풀 동기화 (부피 정확도 + 빨간/노란 보정)
+  useEffect(() => {
+    if (active || spawnQueue.length || saveQueue.length) return;
+    if (!pendingGridReconcile.current) return;
+    pendingGridReconcile.current = false;
+    const derived = deriveGameState(transactions);
+    setGrid(derived.grid);
+    setPool(derived.pool);
+    setGhostMode(derived.ghostMode);
+  }, [active, spawnQueue, saveQueue, transactions]);
 
   // ── AUTO FALL: 지출·저축 블록 자동 낙하 (좌우·회전은 저축만) ──
   useEffect(() => {
@@ -758,7 +900,7 @@ function App() {
         })();
         setTransactions(mergedTxs);
         setSavingsGoalPct(parsed.savingsGoalPct);
-        setFavorites(parsed.favorites.length ? parsed.favorites : INITIAL_FAVORITES);
+        setFavorites(sanitizeFavorites(parsed.favorites.length ? parsed.favorites : INITIAL_FAVORITES));
         setTheme(parsed.theme);
         recomputeFromTransactions(mergedTxs);
         window.alert("복원했어요. 거래·수입·저축률·즐겨찾기·테마를 불러왔습니다.");
