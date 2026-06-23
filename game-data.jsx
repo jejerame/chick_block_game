@@ -341,37 +341,28 @@ window.GAME = (() => {
     return Math.round(ratio * BOARD_CELL_COUNT);
   }
 
-  /** 목표 셀 수까지 보정 — spend는 빨간 블록/낱알만 (amount=1 흰 기절 낱알 금지) */
+  /** 목표 셀 수까지 보정 — 항상 1칸 낱알 단위로만 (블록 통째로 끼우면 목표치 초과 — v49) */
   function syncGridToTarget(grid, targetTotal, kind) {
     let g = grid;
     let guard = 0;
     while (countOccupiedCells(g) < targetTotal && guard++ < BOARD_CELL_COUNT) {
       const before = countOccupiedCells(g);
+      const cell = pickFillCell(g);
+      if (!cell) break;
+      const [r, c] = cell;
+      const ng = cloneGrid(g);
       if (kind === "save") {
-        const cell = pickFillCell(g);
-        if (!cell) break;
-        const [r, c] = cell;
-        const ng = cloneGrid(g);
         ng[r][c] = { kind: "save", tier: "save", amount: 1 };
         g = ng;
       } else {
-        const tryBlock = lockBlockOnGrid(g, "red", 50_000, "지출", `topup-${guard}`);
-        if (countOccupiedCells(tryBlock) > before) {
-          g = tryBlock;
-        } else {
-          const cell = pickFillCell(g);
-          if (!cell) break;
-          const [r, c] = cell;
-          const ng = cloneGrid(g);
-          ng[r][c] = {
-            kind: "spend",
-            tier: "blue",
-            mono: true,
-            subtype: "red",
-            amount: MONO_RED,
-          };
-          g = hardenFullRows(ng).grid;
-        }
+        ng[r][c] = {
+          kind: "spend",
+          tier: "blue",
+          mono: true,
+          subtype: "red",
+          amount: MONO_RED,
+        };
+        g = hardenFullRows(ng).grid;
       }
       if (countOccupiedCells(g) <= before) break;
     }
@@ -587,6 +578,7 @@ window.GAME = (() => {
   }
 
   function deriveGameState(transactions) {
+    resetZoneRotor(); // 동일 거래 재생 시 항상 동일 보드가 나오도록 매번 처음부터
     const sorted = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
     const totals = sumTxTotals(sorted);
     /** ★ 부피·임계값은 항상 최종 수입 합계 기준 (거래 순서와 무관) */
@@ -678,24 +670,24 @@ window.GAME = (() => {
       if (height > maxH) maxH = height;
     }
     for (let c = 0; c < COLS - 1; c++) bump += Math.abs(h[c] - h[c + 1]);
-    return { agg, holes, bump, maxH };
+    return { agg, holes, bump, maxH, h };
   }
 
-  // grid + 도형 + 회전 상태로 최적의 base pos.c 를 반환
-  function pickSmartCol(grid, shape, rot) {
-    const variants = SHAPES[shape];
-    const cells = variants[(rot || 0) % variants.length];
-    const cs = cells.map((p) => p[1]);
-    const minC = Math.min(...cs);
-    const maxC = Math.max(...cs);
-    const w = maxC - minC + 1;
+  // 좌(0~2) / 중(3~4) / 우(5~7) — 평탄도 점수만 쓰면 도형이 섞일 때 가운데가 계속
+  // 유리해지는 편향이 있어, 차례마다 "이번엔 이 구역" 을 정해 그 구역 안에서만 최적
+  // 자리를 찾는다 (홀 생성 등 나쁜 자리는 여전히 피함). 그 구역에 둘 데가 전혀 없으면
+  // (도형이 구역보다 넓거나 구역이 막힘) 전체 보드에서 다시 찾는다. — v50
+  const ZONES = [[0, 1, 2], [3, 4], [5, 6, 7]];
+  let zoneRotor = 0;
+  function resetZoneRotor() { zoneRotor = 0; }
 
+  function bestColInRange(grid, cells, w, baseFilter) {
     let bestScore = Infinity;
-    let bestPosC = -minC;
-    let found = false;
+    let bestPosC = null;
 
     for (let base = 0; base <= COLS - w; base++) {
-      const posC = base - minC;
+      if (baseFilter && !baseFilter(base, base + w - 1)) continue;
+      const posC = base - cells.reduce((m, [, c]) => Math.min(m, c), 0);
       // 위에서 떨어뜨려 착지 행 계산
       let dr = 0;
       while (true) {
@@ -721,10 +713,28 @@ window.GAME = (() => {
       if (score < bestScore) {
         bestScore = score;
         bestPosC = posC;
-        found = true;
       }
     }
-    return found ? bestPosC : pickRandomCol(shape);
+    return bestPosC;
+  }
+
+  // grid + 도형 + 회전 상태로 최적의 base pos.c 를 반환
+  function pickSmartCol(grid, shape, rot) {
+    const variants = SHAPES[shape];
+    const cells = variants[(rot || 0) % variants.length];
+    const minC = cells.reduce((m, [, c]) => Math.min(m, c), 0);
+    const maxC = cells.reduce((m, [, c]) => Math.max(m, c), 0);
+    const w = maxC - minC + 1;
+
+    const zoneCols = ZONES[zoneRotor % ZONES.length];
+    zoneRotor++;
+    const inZone = (lo, hi) => lo >= zoneCols[0] && hi <= zoneCols[zoneCols.length - 1];
+
+    const zonePosC = bestColInRange(grid, cells, w, inZone);
+    if (zonePosC != null) return zonePosC;
+
+    const anyPosC = bestColInRange(grid, cells, w, null);
+    return anyPosC != null ? anyPosC : pickRandomCol(shape);
   }
 
   const PIECE_QUEUE = [
