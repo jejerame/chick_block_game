@@ -14,6 +14,7 @@ const CHICK_IMG = {
   day:     __R.chickDay     || "assets/chick_day.png",
   night:   __R.chickNight   || "assets/chick_night.png",
   goldEgg: __R.goldEgg      || "assets/goldegg_nu.png",
+  egg:     __R.egg          || "assets/egg.png",
 };
 
 const formatKRW = (n) => {
@@ -254,6 +255,19 @@ function GoldenEggCard() {
       <img className="ge-egg-img" src={CHICK_IMG.goldEgg} alt="" draggable={false} />
       <div className="ge-count"><span className="ge-count-num">0</span>개</div>
       <div className="ge-hint">이번 달 목표까지<br/>안 닿으면 획득</div>
+    </div>
+  );
+}
+
+/** 만원 이하 소액 — 보드엔 안 내려오지만 누적되고 있다는 안내 버블 (화면 중앙, 잠깐 떴다 사라짐) */
+function SmallSpendBubble({ bubble }) {
+  if (!bubble) return null;
+  return (
+    <div className="small-spend-bubble" key={bubble.t}>
+      <div className="ssb-egg-wrap">
+        <img className="ssb-egg-img" src={CHICK_IMG.egg} alt="" draggable={false} />
+      </div>
+      <div className="ssb-text">만원 이하 금액은<br/>쌓이고 있어요</div>
     </div>
   );
 }
@@ -1336,6 +1350,6 @@ function TransactionListSheet({ transactions, onClose, onEdit, onDelete }) {
 }
 Object.assign(window, {
   Board, AppHeader, Controls, BottomNav, BottomSheet,
-  TransactionListSheet, BalanceCard, TopExpenseCard, GoldenEggCard,
+  TransactionListSheet, BalanceCard, TopExpenseCard, GoldenEggCard, SmallSpendBubble,
 });
 })();

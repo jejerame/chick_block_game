@@ -168,6 +168,7 @@ function App() {
   const [monoFlash, setMonoFlash] = useState(null);    // 낱알 착지 반짝
   const [hardenRows, setHardenRows] = useState([]);    // 방금 굳은 줄 (흔들림 연출)
   const [hardenToast, setHardenToast] = useState(null); // 굳음 안내 토스트
+  const [smallSpendBubble, setSmallSpendBubble] = useState(null); // 만원 이하 — 보드에 안 내려오는 소액 안내
 
   // 입력 바텀시트 + 즐겨찾기
   const [sheetType, setSheetType] = useState(null); // null | "spend" | "income" | "save"
@@ -495,7 +496,12 @@ function App() {
       const nextDerived = deriveGameState(nextTxs);
       const need = cellDeltaFromTxChange(transactions, nextTxs);
       setPool(nextDerived.pool);
-      queueSpendBlocks(amount, catLabel, need, prevDerived.pool);
+      if (need === 0) {
+        setSmallSpendBubble({ t: Date.now() });
+        setTimeout(() => setSmallSpendBubble(null), 2200);
+      } else {
+        queueSpendBlocks(amount, catLabel, need, prevDerived.pool);
+      }
     } else if (type === "save") {
       const need = cellDeltaFromTxChange(transactions, nextTxs);
       const nextDerived = deriveGameState(nextTxs);
@@ -909,6 +915,8 @@ function App() {
                 onDelete={handleDeleteTransaction}
               />
             )}
+
+            <window.SmallSpendBubble bubble={smallSpendBubble} />
           </div>
   );
 
