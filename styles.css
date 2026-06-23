@@ -837,8 +837,11 @@ html.native-device.is-safari-browser .bottom-nav {
   place-items: center;
 }
 .ssb-egg-img {
-  width: 86%;
-  height: 86%;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 38px;
+  max-height: 38px;
   object-fit: contain;
 }
 .ssb-text {
