@@ -720,14 +720,6 @@ html.native-device.is-safari-browser .bottom-nav {
 .chick.active.pulse {
   animation: pulse 0.18s ease-out;
 }
-.chick.ghost {
-  animation: float 2.6s ease-in-out infinite;
-}
-.chick.ghost::before {
-  /* 기절 병아리는 이미지 자체에 후광/별 효과가 있어 배경 radial 제거 */
-  display: none;
-}
-
 /* ★ 낱알(mono) — 소액 1×1 셀 */
 .chick.mono img {
   /* 1칸 안에서 살짝 작게, 또렷하게 */
@@ -857,6 +849,47 @@ html.native-device.is-safari-browser .bottom-nav {
   10%  { opacity: 1; }
   85%  { opacity: 1; }
   100% { opacity: 0; }
+}
+
+/* ★ 목표 지출선 돌파 — 보드는 그대로 계속 채워지고, 끝까지 떠 있는 영구 안내 레이어 */
+.gfb-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  animation: gfb-in 0.4s ease both;
+}
+.gfb-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 24, 0.5);
+}
+.gfb-content {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.gfb-img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.45));
+}
+.gfb-text {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  color: #F2F4F9;
+}
+@keyframes gfb-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes settle {

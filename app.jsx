@@ -716,8 +716,8 @@ function App() {
     [grid, goalRow]
   );
   const effectiveGhost = ghostMode || overBudget || stackPastLine || tweaks.ghostPreview;
-  /** 목표선 돌파 시 고정된 지출 전체 기절 — 낙하 중 블록은 Board에서 별도 처리 */
-  const boardGhostMode = !showEmptyPreview
+  /** 목표선 돌파 — 보드 칸 색은 그대로 두고, 영구 안내 레이어만 띄움 (v51) */
+  const showGhostFailBanner = !showEmptyPreview
     && (stackPastLine || tweaks.ghostPreview);
 
   const EGG_GOAL = 18;
@@ -841,7 +841,6 @@ function App() {
                     active={active}
                     activeCells={activeCells}
                     ghostCells={ghostCells}
-                    ghostMode={boardGhostMode}
                     pulse={pulse}
                     goalRow={goalRow}
                     goalBouncing={goalBouncing}
@@ -917,6 +916,7 @@ function App() {
             )}
 
             <window.SmallSpendBubble bubble={smallSpendBubble} />
+            <window.GhostFailBanner show={showGhostFailBanner} />
           </div>
   );
 

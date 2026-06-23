@@ -36,7 +36,7 @@ const cellAt = (r, c) => ({
 });
 
 // ── BOARD ──────────────────────────────────────────────────────
-function Board({ grid, active, activeCells, ghostCells, ghostMode = false, pulse, goalRow = DEFAULT_GOAL_ROW, goalBouncing = false, monoFlash = null, hardenRows = [], hardenToast = null }) {
+function Board({ grid, active, activeCells, ghostCells, pulse, goalRow = DEFAULT_GOAL_ROW, goalBouncing = false, monoFlash = null, hardenRows = [], hardenToast = null }) {
   const W = COLS * CELL + (COLS - 1) * GAP;
   const H = ROWS * CELL + (ROWS - 1) * GAP;
   const outerW = W + 12;
@@ -101,16 +101,9 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode = false, pulse
       {/* locked cells */}
       {lockedCells.map(({ r, c, kind, tier, mono, subtype, hardened }) => {
         const t = tone(tier);
-        const isGhost = ghostMode && kind === "spend" && !hardened;
-        // ★ 목표선 돌파 시 고정 지출 전체 기절 (행별 분리 없음)
-        let src;
-        if (mono) {
-          src = isGhost ? CHICK_IMG.ghostNu : CHICK_IMG.spendNu;
-        } else {
-          src = isGhost
-            ? CHICK_IMG.ghostNu
-            : (kind === "save" ? CHICK_IMG.save : CHICK_IMG.spendNu);
-        }
+        const src = mono
+          ? CHICK_IMG.spendNu
+          : (kind === "save" ? CHICK_IMG.save : CHICK_IMG.spendNu);
         const popping = monoFlash && monoFlash.r === r && monoFlash.c === c
           && (Date.now() - monoFlash.t) < 700;
         const shaking = hardened && hardenRows.includes(r);
@@ -121,7 +114,7 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode = false, pulse
         return (
           <div
             key={`lk-${r}-${c}`}
-            className={`chick locked ${kind} ${isGhost ? "ghost" : ""} ${mono ? `mono mono-${subtype}` : ""} ${popping ? "mono-pop" : ""} ${hardened ? "hardened" : ""} ${shaking ? "harden-shake" : ""}`}
+            className={`chick locked ${kind} ${mono ? `mono mono-${subtype}` : ""} ${popping ? "mono-pop" : ""} ${hardened ? "hardened" : ""} ${shaking ? "harden-shake" : ""}`}
             style={{
               ...cellAt(r,c),
               width: CELL, height: CELL,
@@ -270,6 +263,20 @@ function SmallSpendBubble({ bubble }) {
           <img className="ssb-egg-img" src={CHICK_IMG.egg} alt="" draggable={false} />
         </div>
         <div className="ssb-text">만원 이하 금액은<br/>쌓이고 있어요</div>
+      </div>
+    </div>
+  );
+}
+
+/** 목표 지출선 돌파 — 보드는 평소처럼 계속 채워지고, 그 위에 영구 안내 레이어만 떠 있음 */
+function GhostFailBanner({ show }) {
+  if (!show) return null;
+  return (
+    <div className="gfb-overlay">
+      <div className="gfb-backdrop" />
+      <div className="gfb-content">
+        <img className="gfb-img" src={CHICK_IMG.ghostNu} alt="" draggable={false} />
+        <div className="gfb-text">병아리 기절...<br/>이번 달 미션 실패<br/>목표 지출선을 넘었어요.</div>
       </div>
     </div>
   );
@@ -1353,6 +1360,6 @@ function TransactionListSheet({ transactions, onClose, onEdit, onDelete }) {
 }
 Object.assign(window, {
   Board, AppHeader, Controls, BottomNav, BottomSheet,
-  TransactionListSheet, BalanceCard, TopExpenseCard, GoldenEggCard, SmallSpendBubble,
+  TransactionListSheet, BalanceCard, TopExpenseCard, GoldenEggCard, SmallSpendBubble, GhostFailBanner,
 });
 })();
