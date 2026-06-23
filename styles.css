@@ -216,7 +216,7 @@ html.native-device.is-safari-browser .bottom-nav {
   font-size: 0.92em;
 }
 .page-bg--device .side-title { font-size: 11px; }
-.page-bg--device .side-eyebrow { font-size: 8px; }
+.page-bg--device .side-eyebrow { font-size: 9.5px; }
 
 
 .page-bg--device .controls {
@@ -461,11 +461,11 @@ html.native-device.is-safari-browser .bottom-nav {
 .side-eyebrow {
   width: 100%;
   text-align: center;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 8.5px;
-  letter-spacing: 0.14em;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  letter-spacing: 0.02em;
   color: var(--pastel-yellow);
-  font-weight: 700;
+  font-weight: 800;
 }
 .side-eyebrow.danger { color: var(--pastel-red); }
 .side-title {
@@ -909,12 +909,12 @@ html.native-device.is-safari-browser .bottom-nav {
   right: 0; top: -11px;
   background: var(--pastel-red);
   color: #4A0D14;
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-weight: 800;
   padding: 2px 6px 2px 5px;
   border-radius: 5px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.02em;
+  font-family: var(--font-ui);
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 .danger-zone {
@@ -1098,10 +1098,11 @@ html.native-device.is-safari-browser .bottom-nav {
   letter-spacing: -0.01em;
 }
 .btn.open-list .open-list-sub {
-  font-size: 8.5px;
+  font-size: 9.5px;
+  font-weight: 600;
   color: var(--ink-3);
   margin-top: 2px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-ui);
 }
 
 /* ─── BOTTOM NAV ─── */
