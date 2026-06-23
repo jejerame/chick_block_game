@@ -4,11 +4,11 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
 const {
   COLS, ROWS, CELL, GAP, SPAWN, SHAPES,
-  makeLandingHeroGrid, makeEmptyHomePreviewGrid, deriveGameState, sumTxTotals, deriveYearPoolBadges, savePoolTrophyYear, collectBadgeYears,
+  makeEmptyHomePreviewGrid, deriveGameState, sumTxTotals,
   loadChickPersistState, saveChickPersistState,
   buildChickBackup, parseChickBackup, transactionsToCSV, downloadTextFile, backupFilename,
   getThresholds, getTargetSpend, isOverBudget, TIER_HINT_LABEL, applyPoolDeposit, pickShapeFor, pickRandomCol, pickSmartCol,
-  MONO_MAX, monoSubtype, pickFillCell, hardenFullRows, targetBoardCells, countOccupiedCells, AVG_CELLS_PER_BLOCK, computeGoalRow,
+  MONO_MAX, monoSubtype, pickFillCell, hardenFullRows, countOccupiedCells, AVG_CELLS_PER_BLOCK, computeGoalRow, gridSpendPastGoalRow, cellDeltaFromTxChange, simulateSpendStep,
   INITIAL_FAVORITES, DEFAULT_INCOME,
 } = window.GAME;
 
@@ -130,72 +130,13 @@ function App() {
   // ── TWEAKS ──────────────────────────────────────────────
   const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     "ghostPreview": false,
-    "theme": "dark",
   }/*EDITMODE-END*/;
   const [tweaks, setTweak] = window.useTweaks(TWEAK_DEFAULTS);
-
-  // ── THEME (다크/라이트) ──────────────────────────────────────
-  const [theme, setThemeState] = useState(() => {
-    try {
-      const saved = localStorage.getItem("chick.theme");
-      if (saved === "dark" || saved === "light") return saved;
-    } catch (_) {}
-    return tweaks.theme === "light" ? "light" : "dark";
-  });
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    try { localStorage.setItem("chick.theme", theme); } catch (_) {}
-  }, [theme]);
-  // 마스코트 탭 → 밤 ↔ 낮 토글
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setThemeState(next);
-    setTweak("theme", next);
-  };
-  // 특정 테마로 직접 지정 (프로필 셀렉터용)
-  const setTheme = (next) => {
-    setThemeState(next);
-    setTweak("theme", next);
-  };
 
   // ── SCREEN ROUTING (home / stats / me) ──────────────────────
   const [screen, setScreen] = useState("home");
 
-  // ── LANDING (첫 실행만) ──────────────────────────────────────
-  const [showLanding, setShowLanding] = useState(() => {
-    try { return localStorage.getItem("chick.seenLanding") !== "1"; } catch (_) { return true; }
-  });
-  const [landingClosing, setLandingClosing] = useState(false);
-  const [landingSession, setLandingSession] = useState(0);
-  const startGuardRef = useRef(0);
-  const startApp = useCallback(() => {
-    const now = Date.now();
-    if (now - startGuardRef.current < 350) return;
-    startGuardRef.current = now;
-    try { localStorage.setItem("chick.seenLanding", "1"); } catch (_) {}
-    document.querySelectorAll(".landing").forEach((el) => {
-      el.classList.add("landing--gone");
-    });
-    setShowLanding(false);
-    setLandingClosing(false);
-  }, []);
-  const replayLanding = () => {
-    setLandingClosing(false);
-    setScreen("home");
-    setLandingSession((n) => n + 1);
-    setShowLanding(true);
-  };
-
   const [forceEmptyPreview, setForceEmptyPreview] = useState(false);
-
-  const replayEmptyPreview = () => {
-    try { localStorage.removeItem(EMPTY_GHOST_KEY); } catch (_) {}
-    setEmptyGhostSeen(false);
-    setEmptyGhostFading(false);
-    emptyGhostDismissLock.current = false;
-    setForceEmptyPreview(true);
-    setScreen("home");
-  };
 
   // ── SETTINGS (목표 저축률 등) ────────────────────────────────
   const [savingsGoalPct, setSavingsGoalPct] = useState(BOOT.savingsGoalPct);
@@ -212,10 +153,7 @@ function App() {
   const [spawnQueue, setSpawnQueue] = useState([]);
   const [saveQueue, setSaveQueue] = useState([]);
 
-  const landingHeroGrid = useMemo(() => makeLandingHeroGrid(), []);
   const emptyPreviewGrid = useMemo(() => makeEmptyHomePreviewGrid(), []);
-  const LANDING_PREVIEW_POOL = 57_000;
-  const landingBackdrop = showLanding && !landingClosing;
 
   const appShellRef = useRef(null);
   const [emptyGhostSeen, setEmptyGhostSeen] = useState(loadEmptyGhostSeen);
@@ -224,7 +162,6 @@ function App() {
 
   const [goalBouncing, setGoalBouncing] = useState(false);
 
-  const [rescueAvailable, setRescueAvailable] = useState(1);
   const [ghostMode, setGhostMode] = useState(BOOT.derived.ghostMode);
   const [pulse, setPulse] = useState(false);
   const [floatToast, setFloatToast] = useState(null); // 실체화 토스트
@@ -275,13 +212,11 @@ function App() {
 
   /** 빈 홈 1회 데모 — forceEmptyPreview 시 거래 있어도 재생 (내 정보 → 다시 보기) */
   const showEmptyPreview =
-    !showLanding &&
-    !landingClosing &&
     screen === "home" &&
     (forceEmptyPreview || (transactions.length === 0 && !emptyGhostSeen));
 
   const dismissEmptyPreview = useCallback(() => {
-    if (emptyGhostDismissLock.current || showLanding) return;
+    if (emptyGhostDismissLock.current) return;
     if (!forceEmptyPreview && emptyGhostSeen) return;
     emptyGhostDismissLock.current = true;
     setEmptyGhostFading(true);
@@ -292,7 +227,7 @@ function App() {
       emptyGhostDismissLock.current = false;
       try { localStorage.setItem(EMPTY_GHOST_KEY, "1"); } catch (_) {}
     }, EMPTY_GHOST_FADE_MS);
-  }, [emptyGhostSeen, showLanding, forceEmptyPreview]);
+  }, [emptyGhostSeen, forceEmptyPreview]);
 
   const onChipTap = useCallback((t) => {
     dismissEmptyPreview();
@@ -300,7 +235,7 @@ function App() {
   }, [dismissEmptyPreview]);
 
   useEffect(() => {
-    if (!showEmptyPreview || showLanding || landingClosing) return;
+    if (!showEmptyPreview) return;
     const root = appShellRef.current;
     if (!root) return;
     let armed = false;
@@ -309,8 +244,7 @@ function App() {
       if (!cancelled) armed = true;
     }, EMPTY_GHOST_ARM_MS);
     const onFirstPointer = (e) => {
-      if (!armed || showLanding || landingClosing) return;
-      if (e.target.closest(".landing-start, .landing-start-slot")) return;
+      if (!armed) return;
       if (e.button !== undefined && e.button !== 0) return;
       dismissEmptyPreview();
     };
@@ -320,10 +254,10 @@ function App() {
       window.clearTimeout(armTimer);
       root.removeEventListener("pointerdown", onFirstPointer, { capture: false });
     };
-  }, [showEmptyPreview, dismissEmptyPreview, showLanding, landingClosing]);
+  }, [showEmptyPreview, dismissEmptyPreview]);
 
-  const previewBackdrop = landingBackdrop || showEmptyPreview;
-  const previewGrid = showEmptyPreview ? emptyPreviewGrid : landingHeroGrid;
+  const previewBackdrop = showEmptyPreview;
+  const previewGrid = emptyPreviewGrid;
 
   // ── COMPUTED ────────────────────────────────────────────────
   const activeCells = useMemo(() => {
@@ -379,13 +313,6 @@ function App() {
 
   /** 블록 DROP 세션 중에는 derive로 보드를 덮어쓰지 않음 */
   const blockDropSession = useRef(false);
-
-  const getVolumeNeed = useCallback((txs) => {
-    const t = sumTxTotals(txs);
-    const inc = t.income > 0 ? t.income : DEFAULT_INCOME;
-    const target = targetBoardCells(inc, t.expense, t.savings);
-    return Math.max(0, target - countOccupiedCells(grid));
-  }, [grid]);
 
   const makeBlock = (tier, amount, label) => {
     const shape = pickShapeFor(tier);
@@ -458,38 +385,35 @@ function App() {
     flashPulse();
   };
 
-  const queueSpendBlocks = (amount, label, need) => {
-    if (need <= 0) return;
-    blockDropSession.current = true;
-    if (amount >= TIER_THRESHOLD.orange) {
-      const n = Math.max(1, Math.ceil(need / AVG_CELLS_PER_BLOCK));
-      const perAmt = Math.max(1, Math.round(amount / n));
-      const blocks = Array.from({ length: n }, () => makeBlock("red", perAmt, label));
+  const queueSpendBlocks = (amount, label, need, poolBefore) => {
+    const plan = simulateSpendStep(
+      grid,
+      poolBefore,
+      amount,
+      label,
+      TIER_THRESHOLD,
+      `live-${Date.now()}`,
+      need,
+      { mutateGrid: false }
+    );
+    const mkBlock = (b) => makeBlock(b.tier, b.amount, b.label);
+
+    if (plan.liveBlocks.length > 0) {
+      blockDropSession.current = true;
+      const [head, ...rest] = plan.liveBlocks;
+      const headBlk = mkBlock(head);
       if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
-        const [head, ...rest] = blocks;
-        setActive({ ...head, pos: { r: 0, c: pickSmartCol(grid, head.shape, 0) } });
-        if (rest.length) setSpawnQueue(rest);
+        setActive({ ...headBlk, pos: { r: 0, c: pickSmartCol(grid, headBlk.shape, 0) } });
+        if (rest.length) setSpawnQueue(rest.map(mkBlock));
       } else {
-        setSpawnQueue((q) => [...q, ...blocks]);
+        setSpawnQueue((q) => [...q, ...plan.liveBlocks.map(mkBlock)]);
       }
-      showToast("red", label);
-      return;
+      showToast(head.tier, head.label);
     }
-    if (amount < MONO_MAX) {
-      dropMono(amount, label, need);
-      blockDropSession.current = false;
-      return;
-    }
-    const dep = applyPoolDeposit(pool, amount, TIER_THRESHOLD);
-    setPool(dep.pool);
-    if (dep.tier && need > 0) {
-      const blk = makeBlock(dep.tier, dep.thresholdValue, TIER_HINT_LABEL[dep.tier]);
-      if (!active && spawnQueue.length === 0 && saveQueue.length === 0) {
-        setActive({ ...blk, pos: { r: 0, c: pickSmartCol(grid, blk.shape, 0) } });
-      } else {
-        setSpawnQueue((q) => [...q, blk]);
-      }
-      showToast(dep.tier, label);
+
+    if (plan.monoPlacements > 0) {
+      dropMono(amount, label, plan.monoPlacements);
+      if (plan.liveBlocks.length === 0) blockDropSession.current = false;
     }
   };
 
@@ -567,16 +491,15 @@ function App() {
       setGoalBouncing(true);
       window.setTimeout(() => setGoalBouncing(false), 600);
     } else if (type === "spend") {
-      const need = getVolumeNeed(nextTxs);
-      const derived = deriveGameState(nextTxs);
-      if (amount >= TIER_THRESHOLD.orange || amount < MONO_MAX) {
-        setPool(derived.pool);
-      }
-      queueSpendBlocks(amount, catLabel, need);
+      const prevDerived = deriveGameState(transactions);
+      const nextDerived = deriveGameState(nextTxs);
+      const need = cellDeltaFromTxChange(transactions, nextTxs);
+      setPool(nextDerived.pool);
+      queueSpendBlocks(amount, catLabel, need, prevDerived.pool);
     } else if (type === "save") {
-      const need = getVolumeNeed(nextTxs);
-      const derived = deriveGameState(nextTxs);
-      setPool(derived.pool);
+      const need = cellDeltaFromTxChange(transactions, nextTxs);
+      const nextDerived = deriveGameState(nextTxs);
+      setPool(nextDerived.pool);
       queueSaveBlocks(amount, catLabel, need);
     }
 
@@ -679,41 +602,25 @@ function App() {
           : { kind: "spend", tier: active.tier, amount: active.amount };
       }
     });
-    if (!isSave && landed.some(([r]) => r <= goalRow)) {
+    if (!isSave && gridSpendPastGoalRow(newGrid, goalRow)) {
       setGhostMode(true);
     }
     setGrid(isSave ? newGrid : applyHarden(newGrid));
+    window.playBlockLandSfx?.();
     setActive(null);
   }, [active, grid, goalRow]);
 
-  const onRotate = () => { if (tryMove(0, 0, 1)) flashPulse(); };
-  const onMoveLeft = () => { if (tryMove(0, -1, 0)) flashPulse(); };
-  const onMoveRight = () => { if (tryMove(0, 1, 0)) flashPulse(); };
-  const onSoftDrop = () => {
-    if (tryMove(1, 0, 0)) flashPulse();
-    else lockActive();
+  const onRotate = () => {
+    if (tryMove(0, 0, 1)) {
+      window.playBlockRotateSfx?.();
+      flashPulse();
+    }
   };
-
   const onDrop = () => lockActive();
 
   const flashPulse = () => {
     setPulse(true);
     setTimeout(() => setPulse(false), 120);
-  };
-
-  const onRescue = () => {
-    if (rescueAvailable <= 0) return;
-    let target = -1;
-    for (let r = ROWS - 1; r >= 0; r--) {
-      if (grid[r].every((c) => c && c.kind === "save")) { target = r; break; }
-    }
-    if (target < 0) return;
-    const newGrid = grid.map((row) => row.slice());
-    newGrid.splice(target, 1);
-    newGrid.unshift(Array(COLS).fill(null));
-    setGrid(newGrid);
-    setRescueAvailable(rescueAvailable - 1);
-    setGhostMode(false);
   };
 
   const gridRef = useRef(grid);
@@ -737,12 +644,13 @@ function App() {
     }
   }, [active, spawnQueue, saveQueue]);
 
-  // DROP 세션 종료 후 풀·기절만 동기화 (보드는 DROP으로만 쌓음 — setGrid 금지)
+  // DROP 세션 종료 후 derive와 보드·풀·기절 동기화 (라이브 DROP 완료 시 1회)
   useEffect(() => {
     if (active || spawnQueue.length || saveQueue.length) return;
     if (!blockDropSession.current) return;
     blockDropSession.current = false;
     const derived = deriveGameState(transactions);
+    setGrid(derived.grid);
     setPool(derived.pool);
     setGhostMode(derived.ghostMode);
   }, [active, spawnQueue, saveQueue, transactions]);
@@ -767,17 +675,12 @@ function App() {
     return () => clearInterval(id);
   }, [active, grid, lockActive]);
 
-  // ── KEYBOARD: 지출=회전·DROP / 저축=←→·회전·↓·DROP ─────────
+  // ── KEYBOARD: 회전·DROP만 (지출·저축 공통) ─────────────────
   useEffect(() => {
     const h = (e) => {
       if (!active) return;
       if (e.key === "ArrowUp") { e.preventDefault(); onRotate(); }
       if (e.key === " ") { e.preventDefault(); onDrop(); }
-      if (active.kind === "save") {
-        if (e.key === "ArrowLeft")  { e.preventDefault(); onMoveLeft(); }
-        if (e.key === "ArrowRight") { e.preventDefault(); onMoveRight(); }
-        if (e.key === "ArrowDown")  { e.preventDefault(); onSoftDrop(); }
-      }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -802,18 +705,14 @@ function App() {
       }));
   }, [transactions, thresholdIncome]);
 
-  const stackPastLine = useMemo(() => {
-    for (let r = 0; r <= goalRow; r++) {
-      if (grid[r]?.some((c) => c && c.kind === "spend")) return true;
-    }
-    return false;
-  }, [grid, goalRow]);
-
+  const stackPastLine = useMemo(
+    () => gridSpendPastGoalRow(grid, goalRow),
+    [grid, goalRow]
+  );
   const effectiveGhost = ghostMode || overBudget || stackPastLine || tweaks.ghostPreview;
-  /** 보드 시각 — 목표선 돌파 시 지출 블록 전체 기절 (예산 초과만으로는 색 유지) */
-  const boardGhostMode = (showEmptyPreview || landingBackdrop)
-    ? false
-    : (stackPastLine || tweaks.ghostPreview);
+  /** 목표선 돌파 시 고정된 지출 전체 기절 — 낙하 중 블록은 Board에서 별도 처리 */
+  const boardGhostMode = !showEmptyPreview
+    && (stackPastLine || tweaks.ghostPreview);
 
   const EGG_GOAL = 18;
   // ★ 저축 = 사용자가 의식적으로 적립한 금액(savingsBucket)만.
@@ -832,22 +731,6 @@ function App() {
     ? Math.max(0, Math.min(EGG_GOAL, Math.round((effectiveSaving / gaugeIncome) * EGG_GOAL)))
     : 0;
 
-  const [badgeViewYear, setBadgeViewYear] = useState(() => new Date().getFullYear());
-  const badgeYears = useMemo(() => collectBadgeYears(transactions), [transactions]);
-  const poolBadges = useMemo(
-    () => deriveYearPoolBadges(transactions, badgeViewYear),
-    [transactions, badgeViewYear]
-  );
-
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      collectBadgeYears(transactions).forEach((y) => {
-        savePoolTrophyYear(y, deriveYearPoolBadges(transactions, y));
-      });
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [transactions]);
-
   // 거래·수입·저축률·즐겨찾기 — 새로고침 후에도 유지 (보드·풀은 거래에서 재계산)
   useEffect(() => {
     const id = setTimeout(() => {
@@ -861,7 +744,6 @@ function App() {
       transactions,
       income: displayIncome,
       savingsGoalPct,
-      theme,
       favorites,
     });
     downloadTextFile(
@@ -869,7 +751,7 @@ function App() {
       JSON.stringify(payload, null, 2),
       "application/json;charset=utf-8"
     );
-  }, [transactions, displayIncome, savingsGoalPct, theme, favorites]);
+  }, [transactions, displayIncome, savingsGoalPct, favorites]);
 
   const exportCsv = useCallback(() => {
     downloadTextFile(
@@ -908,21 +790,20 @@ function App() {
         setTransactions(mergedTxs);
         setSavingsGoalPct(parsed.savingsGoalPct);
         setFavorites(sanitizeFavorites(parsed.favorites.length ? parsed.favorites : INITIAL_FAVORITES));
-        setTheme(parsed.theme);
         recomputeFromTransactions(mergedTxs);
-        window.alert("복원했어요. 거래·수입·저축률·즐겨찾기·테마를 불러왔습니다.");
+        window.alert("복원했어요. 거래·수입·저축률·즐겨찾기를 불러왔습니다.");
       } catch (err) {
         window.alert(err && err.message ? err.message : "복원에 실패했어요.");
       }
     };
     reader.onerror = () => window.alert("파일을 읽지 못했어요.");
     reader.readAsText(file, "utf-8");
-  }, [recomputeFromTransactions, setTheme]);
+  }, [recomputeFromTransactions]);
 
   const appShell = (
           <div
             ref={appShellRef}
-            className={`app-shell app-shell-fit${showLanding ? " app-shell--landing" : ""}`}
+            className="app-shell app-shell-fit"
           >
             {!nativeDevice && <div className="status-spacer" />}
             <window.AppHeader
@@ -935,26 +816,13 @@ function App() {
             />
 
             {screen === "home" && (
-            <div className={`game-zone${showLanding ? " game-zone--landing-preview" : ""}`}>
-              <window.EggCartonPanel
-                eggs={derivedEggs}
-                goal={EGG_GOAL}
-                savePct={savePct}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                poolBadges={poolBadges}
-                badgeViewYear={badgeViewYear}
-                badgeYears={badgeYears}
-                onBadgeViewYearChange={setBadgeViewYear}
-              />
+            <div className="game-zone">
+              <div className="side-panel">
+                <window.BalanceCard balance={freeCash} overSpend={overSpend} />
+              </div>
 
               <div className={`board-wrap${showEmptyPreview ? " board-wrap--empty-preview" : ""}${emptyGhostFading ? " board-wrap--empty-fading" : ""}`}>
                 <div className="board-stack">
-                  <window.PoolZone
-                    pool={previewBackdrop ? LANDING_PREVIEW_POOL : pool}
-                    nextThreshold={showEmptyPreview ? emptyGhostNextThreshold : nextThreshold}
-                    toast={previewBackdrop ? null : floatToast}
-                  />
                   <window.Board
                     grid={previewBackdrop ? previewGrid : grid}
                     active={active}
@@ -971,40 +839,22 @@ function App() {
                 </div>
               </div>
 
-              <window.AngerRoomPanel
-                angerPct={angerPct}
-                topExpenses={topExpenses}
-                onOpenList={() => setListSheetOpen(true)}
-                balance={freeCash}
-                overSpend={overSpend}
-              />
+              <div className="side-panel">
+                <window.TopExpenseCard topExpenses={topExpenses} />
+                <window.GoldenEggCard />
+              </div>
             </div>
             )}
 
             {screen === "stats" && (
-              <window.StatsScreen
-                transactions={transactions}
-                income={displayIncome}
-                expense={expense}
-                poolBadges={poolBadges}
-                badgeViewYear={badgeViewYear}
-                badgeYears={badgeYears}
-                onBadgeViewYearChange={setBadgeViewYear}
-              />
+              <window.StatsScreen transactions={transactions} />
             )}
 
             {screen === "me" && (
               <window.ProfileScreen
                 income={displayIncome}
                 onIncomeChange={syncIncomeToAmount}
-                savingsGoalPct={savingsGoalPct}
-                onSavingsGoalChange={setSavingsGoalPct}
                 totalEggs={derivedEggs}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                onSetTheme={setTheme}
-                onReplayLanding={replayLanding}
-                onReplayEmptyPreview={replayEmptyPreview}
                 onExportJsonBackup={exportJsonBackup}
                 onImportJsonBackup={importJsonBackup}
                 onExportCsv={exportCsv}
@@ -1012,35 +862,22 @@ function App() {
               />
             )}
 
-            {screen === "home" && !showLanding && (
+            {screen === "home" && (
             <window.Controls
               active={active}
               pool={pool}
               nextThreshold={nextThreshold}
               onRotate={onRotate}
-              onMoveLeft={onMoveLeft}
-              onMoveRight={onMoveRight}
               onDrop={onDrop}
-              onRescue={onRescue}
-              rescueAvailable={rescueAvailable}
+              onOpenList={() => setListSheetOpen(true)}
             />
             )}
 
-            {!(showLanding && nativeDevice) && (
             <window.BottomNav
               ghostMode={effectiveGhost}
               screen={screen}
               onSelect={setScreen}
             />
-            )}
-
-            {showLanding && (
-              <window.Landing
-                key={landingSession}
-                onStart={startApp}
-                closing={landingClosing}
-              />
-            )}
 
             {sheetType && (
               <window.BottomSheet

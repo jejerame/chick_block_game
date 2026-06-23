@@ -56,14 +56,13 @@ window.GAME = (() => {
     DOT: [[[0,0]]],
   };
 
-  // ── 모노(낙알) 낱알 경계 — 고정 2만 ────────────────────────────
-  // 1원~2만 지출은 풀에 모이지 않고 1×1 낱알로 즉시 낙하 + 자동 끝워넣기.
-  //   < 1만 → 기절한 흰 병아리 낱알 (subtype "faint")
-  //   1만 ~ 2만 → 빨간 병아리 낱알 (subtype "red")
-  const MONO_MAX = 20_000;   // 이 금액 미만은 낱알로 처리 (고정)
-  const MONO_RED = 10_000;   // 이 금액 이상이면 빨간 병아리
-  function monoSubtype(amount) {
-    return amount >= MONO_RED ? "red" : "faint";
+  // ── 지출 실체화 ────────────────────────────────────────────────
+  // 모든 지출 → 공중 부양 풀 적립 후, 보드 여유 칸·임계에 따라 낱알(1칸)/블록(4칸+).
+  // MONO_MAX — syncGridToTarget top-up 참고 (풀 우회 규칙 폐기)
+  const MONO_MAX = 20_000;
+  const MONO_RED = 10_000;
+  function monoSubtype(_amount) {
+    return "red";
   }
 
   // 자동 끝워넣기: 보드에서 채울 가장 좋은 빈칸 1개를 찾는다.
@@ -160,35 +159,6 @@ window.GAME = (() => {
     piece("spend", "green",   65000, [[7,5],[7,6],[8,6]]);
 
     return g;
-  }
-
-  /** 랜딩 캡처용 — 블록이 더 많이 쌓인 고정 스냅샷 (실제 거래 상태와 무관) */
-  function makeLandingHeroGrid() {
-    const g = makeInitGrid();
-    const piece = (kind, tier, amount, cells) => {
-      cells.forEach(([r, c]) => {
-        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
-          g[r][c] = { kind, tier: tier || (kind === "save" ? "save" : "cyan"), amount: amount || 0 };
-        }
-      });
-    };
-    piece("spend", "cyan",   28000, [[8,0],[8,1],[9,0],[9,1]]);
-    piece("spend", "cyan",   32000, [[8,3],[8,4],[9,3],[9,4]]);
-    piece("spend", "cyan",   41000, [[7,6],[7,7],[8,6],[8,7]]);
-    piece("spend", "green",  78000, [[6,5],[6,6],[7,5],[7,6]]);
-    piece("spend", "green",  92000, [[6,2],[5,2],[5,3],[5,4]]);
-    piece("spend", "green",  88000, [[6,0],[5,0],[5,1],[4,1]]);
-    piece("spend", "orange", 198000, [[5,5],[4,5],[4,6],[4,7]]);
-    piece("spend", "orange", 245000, [[4,0],[4,1],[3,0],[3,1]]);
-    piece("spend", "orange", 310000, [[4,3],[3,3],[3,4],[2,4]]);
-    piece("spend", "red",    520000, [[3,5],[3,6],[2,5],[2,6],[1,5]]);
-    piece("spend", "red",    680000, [[2,2],[2,3],[1,2],[1,3],[0,2]]);
-    piece("spend", "blue",    8500, [[10,0],[10,1],[11,0]]);
-    piece("spend", "blue",   12000, [[10,4],[11,4],[11,5]]);
-    piece("spend", "blue",    6500, [[10,7],[11,7]]);
-    piece("save",  "save",   50000, [[14,2],[14,3],[13,3]]);
-    piece("save",  "save",   80000, [[15,5],[15,6],[14,6]]);
-    return hardenFullRows(g).grid;
   }
 
   /** 빈 홈 1회 데모 — 목표 지출선(GOAL_ROW) 아래만 쌓음 → 기절(흰 병아리) 없음 */
@@ -460,6 +430,22 @@ window.GAME = (() => {
     return Math.max(1, Math.min(ROWS - 2, Math.round(ROWS * (1 - TARGET_SPEND_RATIO))));
   }
 
+  /** 거래 1건 추가 시 derive 기준 보드에 새로 채울 셀 수 (라이브 그리드와 무관) */
+  function cellDeltaFromTxChange(prevTxs, nextTxs) {
+    const prev = deriveGameState(prevTxs);
+    const next = deriveGameState(nextTxs);
+    return Math.max(0, countOccupiedCells(next.grid) - countOccupiedCells(prev.grid));
+  }
+
+  /** 목표 지출선 위쪽(행 0 .. goalRow-1)에 지출 셀이 있으면 true — 선과 같은 행은 아직 안전 */
+  function gridSpendPastGoalRow(grid, goalRow) {
+    const gr = goalRow != null ? goalRow : computeGoalRow();
+    for (let r = 0; r < gr; r++) {
+      if (grid[r]?.some((c) => c && c.kind === "spend")) return true;
+    }
+    return false;
+  }
+
   /** 소액 낱알 — cellsNeeded 칸까지만 */
   function placeMonosForVolume(grid, amount, cellsNeeded) {
     if (cellsNeeded <= 0) return grid;
@@ -494,142 +480,94 @@ window.GAME = (() => {
     return next;
   }
 
-  function simSpend(grid, pool, amount, label, thresholds, seedBase, cellsNeeded) {
+  /**
+   * 지출 1건 — 풀 적립 → (큰 지출/red) → (풀 임계 블록) → (낱알 1칸씩) 순.
+   * mutateGrid:false → 그리드는 건드리지 않고 liveBlocks·monoPlacements만 반환 (앱 애니메이션용).
+   */
+  function simulateSpendStep(grid, pool, amount, label, thresholds, seedBase, cellsNeeded, opts = {}) {
+    const mutateGrid = opts.mutateGrid !== false;
     let g = grid;
-    let p = pool;
+    let p = pool + amount;
     let remaining = Math.max(0, cellsNeeded);
+    let spawnedBlock = false;
+    let spawnedMono = false;
+    const liveBlocks = [];
+    let monoPlacements = 0;
+    const monoPerCell = cellsNeeded > 0
+      ? Math.max(1, Math.round(amount / cellsNeeded))
+      : Math.max(1, amount);
 
-    if (amount >= thresholds.orange) {
-      if (remaining <= 0) return { grid: g, pool: p };
+    if (amount >= thresholds.orange && remaining > 0) {
       const n = Math.max(1, Math.ceil(remaining / AVG_CELLS_PER_BLOCK));
       const perAmt = Math.max(1, Math.round(amount / n));
       for (let i = 0; i < n && remaining > 0; i++) {
+        if (mutateGrid) {
+          const before = countOccupiedCells(g);
+          g = lockBlockOnGrid(g, "red", perAmt, label, `${seedBase}-red-${i}`);
+          const added = Math.max(0, countOccupiedCells(g) - before);
+          if (added <= 0) break;
+          remaining -= added;
+        } else {
+          liveBlocks.push({ tier: "red", amount: perAmt, label });
+          remaining -= AVG_CELLS_PER_BLOCK;
+        }
+        spawnedBlock = true;
+      }
+      p = Math.max(0, p - amount);
+    } else {
+      const dep = applyPoolDeposit(pool, amount, thresholds);
+      p = dep.pool;
+      if (dep.tier && remaining > 0) {
+        const blkLabel = TIER_HINT_LABEL[dep.tier];
+        if (mutateGrid) {
+          const before = countOccupiedCells(g);
+          g = lockBlockOnGrid(
+            g,
+            dep.tier,
+            dep.thresholdValue,
+            blkLabel,
+            `${seedBase}-pool-${dep.tier}`
+          );
+          remaining -= Math.max(0, countOccupiedCells(g) - before);
+        } else {
+          liveBlocks.push({ tier: dep.tier, amount: dep.thresholdValue, label: blkLabel });
+          remaining -= AVG_CELLS_PER_BLOCK;
+        }
+        spawnedBlock = true;
+      }
+    }
+
+    while (remaining > 0 && p > 0) {
+      const monoAmt = Math.max(1, Math.min(p, monoPerCell));
+      if (mutateGrid) {
         const before = countOccupiedCells(g);
-        g = lockBlockOnGrid(g, "red", perAmt, label, `${seedBase}-red-${i}`);
-        const added = Math.max(0, countOccupiedCells(g) - before);
-        if (added <= 0 || countOccupiedCells(g) === before) break;
+        g = placeMonoOnGrid(g, monoAmt);
+        const added = countOccupiedCells(g) - before;
+        if (added <= 0) break;
         remaining -= added;
-      }
-      return { grid: g, pool: p };
-    }
-
-    if (amount < MONO_MAX) {
-      if (remaining <= 0) return { grid: g, pool: p };
-      g = placeMonosForVolume(g, amount, remaining);
-      return { grid: g, pool: p };
-    }
-
-    const dep = applyPoolDeposit(p, amount, thresholds);
-    p = dep.pool;
-    if (dep.tier && remaining > 0) {
-      const before = countOccupiedCells(g);
-      g = lockBlockOnGrid(
-        g,
-        dep.tier,
-        dep.thresholdValue,
-        TIER_HINT_LABEL[dep.tier],
-        `${seedBase}-pool-${dep.tier}`
-      );
-      if (countOccupiedCells(g) === before) {
-        // 보드 포화 — 풀만 반영
-      }
-    }
-    return { grid: g, pool: p };
-  }
-
-  /** 해당 거래 묶음에서 풀→블록 실체화(applyPoolDeposit tier) 횟수 */
-  function countPoolSpawnsInTransactions(txs) {
-    const sorted = [...txs].sort((a, b) => a.createdAt - b.createdAt);
-    let income = 0;
-    let pool = 0;
-    let spawns = 0;
-    for (const tx of sorted) {
-      const effIncome = income > 0 ? income : DEFAULT_INCOME;
-      const th = getThresholds(effIncome);
-      if (tx.type === "income") {
-        income += tx.amount;
-      } else if (tx.type === "spend") {
-        if (tx.amount >= th.orange) continue;
-        if (tx.amount < MONO_MAX) continue;
-        const dep = applyPoolDeposit(pool, tx.amount, th);
-        pool = dep.pool;
-        if (dep.tier) spawns += 1;
-      }
-    }
-    return spawns;
-  }
-
-  /**
-   * 연간 풀 방어 트로피 — 달별 win(풀 스폰 0) / fail / pending(이번 달) / future
-   * 목표 지출선과 무관, 풀 실체화만 집계.
-   */
-  function deriveYearPoolBadges(transactions, year) {
-    const y = year != null ? year : new Date().getFullYear();
-    const now = new Date();
-    const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-
-    const months = [];
-    for (let m = 1; m <= 12; m++) {
-      const mm = String(m).padStart(2, "0");
-      const ym = `${y}-${mm}`;
-      const txs = transactions.filter((t) => t.date && t.date.startsWith(ym));
-      const spawns = countPoolSpawnsInTransactions(txs);
-
-      let status;
-      if (y > now.getFullYear() || ym > curYm) {
-        status = "future";
-      } else if (ym === curYm) {
-        status = spawns === 0 ? "pending" : "fail";
-      } else if (txs.length === 0) {
-        status = "empty";
       } else {
-        status = spawns === 0 ? "win" : "fail";
+        monoPlacements += 1;
+        remaining -= 1;
       }
-      months.push({ month: m, ym, status, spawns });
+      p = Math.max(0, p - monoAmt);
+      spawnedMono = true;
     }
 
-    const winCount = months.filter((x) => x.status === "win").length;
-    return { year: y, months, winCount };
+    return {
+      grid: g,
+      pool: p,
+      spawnedBlock,
+      spawnedMono,
+      poolOnly: !spawnedBlock && !spawnedMono,
+      liveBlocks,
+      monoPlacements,
+      monoPerCell,
+    };
   }
 
-  const POOL_TROPHY_STORAGE_KEY = "chick.poolTrophy.v1";
-
-  function loadPoolTrophyStore() {
-    try {
-      const raw = localStorage.getItem(POOL_TROPHY_STORAGE_KEY);
-      if (!raw) return { years: {} };
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" && parsed.years ? parsed : { years: {} };
-    } catch (_) {
-      return { years: {} };
-    }
-  }
-
-  function savePoolTrophyYear(year, badgeData) {
-    try {
-      const store = loadPoolTrophyStore();
-      store.years[String(year)] = {
-        months: badgeData.months.map(({ month, ym, status, spawns }) => ({
-          month, ym, status, spawns,
-        })),
-        winCount: badgeData.winCount,
-        updatedAt: Date.now(),
-      };
-      localStorage.setItem(POOL_TROPHY_STORAGE_KEY, JSON.stringify(store));
-    } catch (_) {}
-  }
-
-  function getPoolTrophyYearsFromStore() {
-    return Object.keys(loadPoolTrophyStore().years).map((y) => parseInt(y, 10)).filter(Boolean);
-  }
-
-  function collectBadgeYears(transactions) {
-    const years = new Set([new Date().getFullYear()]);
-    transactions.forEach((t) => {
-      if (t.date && t.date.length >= 4) years.add(parseInt(t.date.slice(0, 4), 10));
-    });
-    getPoolTrophyYearsFromStore().forEach((y) => years.add(y));
-    return [...years].sort((a, b) => b - a);
+  function simSpend(grid, pool, amount, label, thresholds, seedBase, cellsNeeded) {
+    const r = simulateSpendStep(grid, pool, amount, label, thresholds, seedBase, cellsNeeded);
+    return { grid: r.grid, pool: r.pool };
   }
 
   /**
@@ -683,15 +621,8 @@ window.GAME = (() => {
 
     const finalIncome = totals.income;
     const goalRowDyn = computeGoalRow();
-    let ghostMode = isOverBudget(expense, finalIncome);
-    if (!ghostMode) {
-      for (let r = 0; r <= goalRowDyn; r++) {
-        if (grid[r] && grid[r].some((c) => c && c.kind === "spend")) {
-          ghostMode = true;
-          break;
-        }
-      }
-    }
+    const ghostMode = isOverBudget(expense, finalIncome)
+      || gridSpendPastGoalRow(grid, goalRowDyn);
 
     return {
       grid,
@@ -938,7 +869,7 @@ window.GAME = (() => {
     } catch (_) {}
   }
 
-  function buildChickBackup({ transactions, income, savingsGoalPct, theme, favorites }) {
+  function buildChickBackup({ transactions, income, savingsGoalPct, favorites }) {
     return {
       version: CHICK_BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
@@ -947,7 +878,6 @@ window.GAME = (() => {
         transactions: [...transactions],
         income,
         savingsGoalPct,
-        theme,
         favorites: favorites ? [...favorites] : [],
       },
     };
@@ -964,7 +894,6 @@ window.GAME = (() => {
       transactions,
       income: typeof data.income === "number" ? data.income : DEFAULT_INCOME,
       savingsGoalPct: typeof data.savingsGoalPct === "number" ? data.savingsGoalPct : 20,
-      theme: data.theme === "light" ? "light" : "dark",
       favorites: Array.isArray(data.favorites) ? data.favorites : [],
     };
   }
@@ -1007,14 +936,13 @@ window.GAME = (() => {
 
   return {
     COLS, ROWS, CELL, GAP, GOAL_ROW, SPAWN, SAVE_TONE, TIER, SHAPES,
-    makeInitGrid, makeLandingHeroGrid, makeEmptyHomePreviewGrid, makeBaseGrid, deriveGameState, sumTxTotals, deriveYearPoolBadges, countPoolSpawnsInTransactions,
-    loadPoolTrophyStore, savePoolTrophyYear, collectBadgeYears, POOL_TROPHY_STORAGE_KEY, PIECE_QUEUE,
+    makeInitGrid, makeEmptyHomePreviewGrid, makeBaseGrid, deriveGameState, sumTxTotals, PIECE_QUEUE,
     CHICK_BACKUP_VERSION, CHICK_STATE_STORAGE_KEY, loadChickPersistState, saveChickPersistState,
     buildChickBackup, parseChickBackup, transactionsToCSV, downloadTextFile, backupFilename,
     TARGET_SPEND_RATIO, getTargetSpend, isOverBudget,
     TIER_THRESHOLD, TIER_RATIO, POOL_TIER_ORDER, getThresholds, applyPoolDeposit, DEFAULT_INCOME, SHAPE_BY_TIER, TIER_HINT_LABEL, pickShapeFor, pickRandomCol, pickSmartCol, centerColForShape,
-    MONO_MAX, MONO_RED, monoSubtype, pickFillCell, hardenFullRows,
-    countOccupiedCells, targetBoardCells, AVG_CELLS_PER_BLOCK, computeGoalRow,
+    MONO_MAX, MONO_RED, monoSubtype, pickFillCell, hardenFullRows, simulateSpendStep,
+    countOccupiedCells, targetBoardCells, AVG_CELLS_PER_BLOCK, computeGoalRow, gridSpendPastGoalRow, cellDeltaFromTxChange,
     FAV_AUTO_PIN, FAV_SUGGEST_COUNT, INITIAL_FAVORITES, CATEGORIES, TOP_COLORS, DEFAULT_QUICK_SUBS,
   };
 })();

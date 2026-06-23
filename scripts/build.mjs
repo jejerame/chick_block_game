@@ -9,7 +9,7 @@ const FILES = [
   "ios-frame.jsx",
   "tweaks-panel.jsx",
   "game-data.jsx",
-  "landing-fx-overlay.jsx",
+  "block-sfx.jsx",
   "components.jsx",
   "screens.jsx",
   "app.jsx",

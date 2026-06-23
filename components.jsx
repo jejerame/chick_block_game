@@ -16,54 +16,14 @@ const CHICK_IMG = {
   goldEgg: __R.goldEgg      || "assets/goldegg_nu.png",
 };
 
-const MONTH_SHORT = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-
-function poolBadgeTitle(entry) {
-  const m = MONTH_SHORT[entry.month - 1] + "월";
-  if (entry.status === "win") return `${m} · 풀 방어 성공`;
-  if (entry.status === "fail") return `${m} · 풀에서 블록 ${entry.spawns}회`;
-  if (entry.status === "pending") return `${m} · 이번 달 (풀 스폰 ${entry.spawns}회)`;
-  if (entry.status === "empty") return `${m} · 기록 없음`;
-  return `${m} · 아직`;
-}
-
-function poolBadgeDetailMessage(entry, badgeYear) {
-  const m = `${badgeYear}년 ${entry.month}월`;
-  if (entry.status === "win") return `${m} — 풀 방어 성공! 왕관 계란 획득`;
-  if (entry.status === "fail") {
-    return `${m} — 풀 블록 ${entry.spawns}회 떨어짐. 다음 달은 여유 있게`;
-  }
-  if (entry.status === "pending") {
-    return entry.spawns === 0
-      ? `${m} — 진행 중. 지금까지 풀 블록 0회`
-      : `${m} — 이번 달 풀 블록 ${entry.spawns}회 (방어 중)`;
-  }
-  if (entry.status === "empty") return `${m} — 이 달 거래 기록이 없어요`;
-  return `${m} — 아직 오지 않은 달`;
-}
-
 const formatKRW = (n) => {
   if (n >= 10000) return Math.round(n / 10000 * 10) / 10 + "만";
   if (n >= 1000) return (n / 1000).toFixed(0) + "천";
   return n.toLocaleString();
 };
 
-/** 잔액·초과사용 — 천 단위 콤마 전액 표시 */
-const formatWon = (n) => `${Math.max(0, Math.round(n)).toLocaleString("ko-KR")}원`;
-
-/** 우측 TOP3 — 좁은 칸에서도 읽기 쉬운 2줄 분리 (병아리 열은 CSS로 고정) */
-const teCatLines = (cat) => {
-  const fixed = {
-    "데이트비용": ["데이트", "비용"],
-    "충동구매": ["충동", "구매"],
-    "주택청약": ["주택", "청약"],
-  };
-  if (fixed[cat]) return fixed[cat];
-  if (cat.length <= 4) return [cat];
-  if (cat.length <= 6) return [cat.slice(0, 3), cat.slice(3)];
-  const mid = Math.ceil(cat.length / 2);
-  return [cat.slice(0, mid), cat.slice(mid)];
-};
+/** 만/천 줄임 없이 천 단위 콤마 전액 표시 */
+const formatFullWon = (n) => Math.round(n).toLocaleString("ko-KR");
 
 function tone(tier) {
   return tier === "save" ? SAVE_TONE : (TIER[tier] || TIER.cyan);
@@ -75,7 +35,7 @@ const cellAt = (r, c) => ({
 });
 
 // ── BOARD ──────────────────────────────────────────────────────
-function Board({ grid, active, activeCells, ghostCells, ghostMode, pulse, goalRow = DEFAULT_GOAL_ROW, goalBouncing = false, monoFlash = null, hardenRows = [], hardenToast = null }) {
+function Board({ grid, active, activeCells, ghostCells, ghostMode = false, pulse, goalRow = DEFAULT_GOAL_ROW, goalBouncing = false, monoFlash = null, hardenRows = [], hardenToast = null }) {
   const W = COLS * CELL + (COLS - 1) * GAP;
   const H = ROWS * CELL + (ROWS - 1) * GAP;
   const outerW = W + 12;
@@ -141,12 +101,10 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode, pulse, goalRo
       {lockedCells.map(({ r, c, kind, tier, mono, subtype, hardened }) => {
         const t = tone(tier);
         const isGhost = ghostMode && kind === "spend" && !hardened;
-        // ★ 낱알(mono): subtype 에 따라 흰(기절)/빨강 병아리 얼굴 (목표선 돌파 시 전부 기절)
+        // ★ 목표선 돌파 시 고정 지출 전체 기절 (행별 분리 없음)
         let src;
         if (mono) {
-          src = isGhost
-            ? CHICK_IMG.ghostNu
-            : (subtype === "red" ? CHICK_IMG.spendNu : CHICK_IMG.ghostNu);
+          src = isGhost ? CHICK_IMG.ghostNu : CHICK_IMG.spendNu;
         } else {
           src = isGhost
             ? CHICK_IMG.ghostNu
@@ -185,9 +143,12 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode, pulse, goalRo
         );
       })}
 
-      {/* active piece */}
-      {activeCells.map(([r, c], i) => {
+      {/* active piece — 낙하 중 지출은 항상 빨강 (착지 후에만 기절 반영) */}
+      {active && activeCells.map(([r, c], i) => {
         const t = tone(active.tier);
+        const src = active.kind === "save"
+          ? CHICK_IMG.save
+          : CHICK_IMG.spendNu;
         return (
           <div
             key={`act-${i}`}
@@ -200,7 +161,7 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode, pulse, goalRo
             }}
           >
             <img
-              src={active.kind === "save" ? CHICK_IMG.save : CHICK_IMG.spendNu}
+              src={src}
               alt=""
               draggable="false"
             />
@@ -233,396 +194,66 @@ function Board({ grid, active, activeCells, ghostCells, ghostMode, pulse, goalRo
   );
 }
 
-function LandingStartButton({ onStart }) {
-  const btnRef = useRef(null);
-  const touchRef = useRef(false);
+/** 좁은 패널(84px)용 천 단위 콤마 — 부호 포함 */
+const formatSignedWon = (n) => {
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  return `${sign}${Math.abs(Math.round(n)).toLocaleString("ko-KR")}`;
+};
 
-  useEffect(() => {
-    const el = btnRef.current;
-    if (!el) return;
-    const onTouchEnd = (e) => {
-      e.stopPropagation();
-      touchRef.current = true;
-      onStart();
-      window.setTimeout(() => { touchRef.current = false; }, 500);
-    };
-    const onClick = (e) => {
-      e.stopPropagation();
-      if (touchRef.current) return;
-      onStart();
-    };
-    el.addEventListener("touchend", onTouchEnd, false);
-    el.addEventListener("click", onClick, false);
-    return () => {
-      el.removeEventListener("touchend", onTouchEnd, false);
-      el.removeEventListener("click", onClick, false);
-    };
-  }, [onStart]);
-
+// ── LEFT PANEL: 잔액 카드 ───────────────────────────────────────
+function BalanceCard({ balance = 0, overSpend = 0 }) {
   return (
-    <button
-      ref={btnRef}
-      type="button"
-      className="landing-start"
-      aria-label="시작하기"
-    >
-      시작하기 <span className="landing-start-arrow" aria-hidden="true">→</span>
-    </button>
-  );
-}
-
-function LandingCopy() {
-  return (
-    <>
-      <div className="landing-brand">
-        <img src={CHICK_IMG.save} alt="" className="landing-logo" draggable="false" />
-        <span className="landing-brand-name">병아리 블록 가계부</span>
-      </div>
-      <div className="landing-pills" aria-hidden="true">
-        <span className="landing-pill income">수입</span>
-        <span className="landing-pill spend">지출</span>
-        <span className="landing-pill save">저축</span>
-      </div>
-      <h1 id="landing-title" className="landing-title">쓴 돈은 블록이 되어<br/>쌓입니다</h1>
-      <p className="landing-hook">
-        자잘한 지출이 공중에서 합쳐져 떨어지고,<br/>
-        저축은 내 손으로 의식적으로 쌓는 가계부.
-      </p>
-    </>
-  );
-}
-
-// ── LANDING — 안정 버전 + 연출 슬롯(캡처 위·카피 아래) ──
-function Landing({ onStart, closing }) {
-  const FxOverlay = window.LandingFxOverlay;
-
-  return (
-    <div
-      className={`landing landing--simple ${closing ? "closing" : ""}`}
-      role="region"
-      aria-label="시작 화면"
-      aria-labelledby="landing-title"
-    >
-      {/* ① 뒤: 실제 앱(히어로 보드) 블러 */}
-      <div className="landing-backdrop-blur" aria-hidden="true" />
-
-      {/* ② 캡처가 보이는 영역 — 뒤 보드 + 가운데만 살짝 선명 */}
-      <div className="landing-capture-zone" aria-hidden="true" />
-
-      {/* ③ 연출 슬롯 — landing-fx-overlay.jsx 의 LandingFxOverlay */}
-      <div className="landing-fx-slot" data-landing-fx-slot>
-        {typeof FxOverlay === "function" ? <FxOverlay /> : null}
-      </div>
-
-      {/* ④ 글래스 텍스트 (backdrop-filter — iOS 터치 이슈로 버튼은 밖에 둠) */}
-      <div className="landing-copy-anchor">
-        <div className="landing-content landing-content--panel">
-          <LandingCopy />
-        </div>
-      </div>
-
-      {/* ⑤ 시작하기 — 글래스 밖·최상단 z-index (Safari 탭 보장) */}
-      <div className="landing-start-slot">
-        <LandingStartButton onStart={onStart} />
+    <div className="side-card balance-card">
+      <div className="side-eyebrow">잔액</div>
+      <div className="sc-balance-num">{formatSignedWon(balance)}</div>
+      <div className="sc-balance-unit">원</div>
+      <div className="sc-formula">수입 − 지출 − 저축</div>
+      <div className="sc-divider" />
+      <div className="sc-row">
+        <span className="sc-row-label">초과사용</span>
+        <span className="sc-row-val">{formatSignedWon(overSpend)}원</span>
       </div>
     </div>
   );
 }
 
-// ── THEME MASCOT (밤 → 낮 → 숲 3단 순환) ──────────────────────
-/** 연간 풀 방어 트로피 — 홈(compact) / 통계(card) 공용 */
-function YearBadgeStrip({
-  badgeYear,
-  months,
-  winCount,
-  variant = "compact",
-  badgeViewYear,
-  badgeYears,
-  onBadgeViewYearChange,
-}) {
-  const isCard = variant === "card";
-  const [detailToast, setDetailToast] = useState(null);
-  const viewYear = badgeViewYear != null ? badgeViewYear : badgeYear;
-  const years = badgeYears && badgeYears.length ? badgeYears : [viewYear];
-  const minYear = Math.min(...years);
-  const maxYear = Math.max(...years);
-  const canPrev = viewYear > minYear;
-  const canNext = viewYear < maxYear;
-
-  useEffect(() => {
-    if (!detailToast) return undefined;
-    const t = setTimeout(() => setDetailToast(null), 2800);
-    return () => clearTimeout(t);
-  }, [detailToast]);
-
-  const onSlotTap = (entry) => {
-    if (entry.status === "future") return;
-    setDetailToast({
-      status: entry.status,
-      text: poolBadgeDetailMessage(entry, badgeYear),
-    });
-  };
-
-  const yearNav = onBadgeViewYearChange ? (
-    <div className="pt-year-nav">
-      <button
-        type="button"
-        className="pt-year-btn"
-        disabled={!canPrev}
-        onClick={() => onBadgeViewYearChange(viewYear - 1)}
-        aria-label="이전 해"
-      >
-        ‹
-      </button>
-      <span className="pt-year-val">{viewYear}</span>
-      <button
-        type="button"
-        className="pt-year-btn"
-        disabled={!canNext}
-        onClick={() => onBadgeViewYearChange(viewYear + 1)}
-        aria-label="다음 해"
-      >
-        ›
-      </button>
-    </div>
-  ) : null;
-
-  const grid = (
-    <div className={`pt-grid ${isCard ? "pt-grid--card" : "pt-grid--compact"}`}>
-      {months.map((entry) => (
-        <button
-          type="button"
-          key={entry.ym}
-          className={`pt-slot pt-slot--${entry.status}`}
-          title={poolBadgeTitle(entry)}
-          disabled={entry.status === "future"}
-          onClick={() => onSlotTap(entry)}
-        >
-          {entry.status === "win" && (
-            <img className="pt-gold-egg" src={CHICK_IMG.goldEgg} alt="" draggable={false} />
-          )}
-          {isCard && (
-            <span className="pt-slot-mo">{MONTH_SHORT[entry.month - 1]}</span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-
-  const toast = detailToast ? (
-    <div className={`pt-detail-toast pt-detail-toast--${detailToast.status}`} role="status">
-      {detailToast.text}
-    </div>
-  ) : null;
-
-  if (isCard) {
-    return (
-      <div className="pool-trophy-card screen-section">
-        <div className="pt-card-title-block">
-          <div className="pt-card-mission-label">미션성공</div>
-          <div className="pt-card-year-line">
-            {yearNav || <span className="pt-card-year">{badgeYear}</span>}
-          </div>
-        </div>
-        {grid}
-        <p className="pt-card-hint">
-          이번 달 자잘지출 풀 한도 안에서 버티면 황금 계란 획득! 풀이 꽉 차면 그 달은 게임 오버.
-          칸을 탭하면 그달 기록을 볼 수 있어요.
-        </p>
-        {toast}
-      </div>
-    );
-  }
-
+// ── RIGHT PANEL: TOP 지출 카드 ──────────────────────────────────
+function TopExpenseCard({ topExpenses = [] }) {
   return (
-    <div className="pool-trophy-compact" aria-label={`${badgeYear}년 미션 성공 ${winCount}개월`}>
-      <div className="pt-compact-head">
-        <div className="pt-compact-title-block">
-          <div className="pt-compact-label">미션성공</div>
-          <div className="pt-compact-year-line">
-            {yearNav || <span className="pt-compact-year">{badgeYear}</span>}
-          </div>
-        </div>
-      </div>
-      {grid}
-      {toast}
-    </div>
-  );
-}
-
-function ThemeMascot({ theme, onToggle }) {
-  const isNight = theme === "dark";
-  const label    = theme === "dark" ? "NIGHT" : "DAY";
-  const stateTxt = theme === "dark" ? "현재 밤 모드" : "현재 낮 모드";
-  const nextName = theme === "dark" ? "낮" : "밤";
-  return (
-    <button
-      className={`theme-mascot ${isNight ? "is-night" : ""} theme-${theme}`}
-      onClick={onToggle}
-      aria-label={`${nextName} 모드로 전환`}
-      title={`탭하면 ${nextName} 모드로`}
-    >
-      <div className="tm-chick">
-        <img className="tm-img-day"   src={CHICK_IMG.day}   alt="" draggable="false" />
-        <img className="tm-img-night" src={CHICK_IMG.night} alt="" draggable="false" />
-      </div>
-      <div className="tm-label">{label}</div>
-      <div className="tm-state">{stateTxt}</div>
-    </button>
-  );
-}
-
-// ── LEFT PANEL: EGG CARTON ─────────────────────────────────────
-function EggCartonPanel({
-  eggs, goal, savePct, theme, onToggleTheme, poolBadges,
-  badgeViewYear, badgeYears, onBadgeViewYearChange,
-}) {
-  const rows = 6, cols = 3;
-  const total = rows * cols;
-  return (
-    <div className="side-panel egg-panel">
-      <div className="side-eyebrow">SAVE</div>
-      <div className="side-title">계란판<br/>적금</div>
-
-      <div className="carton">
-        <div className="carton-inner">
-          {Array.from({ length: total }, (_, i) => {
-            const filled = i < eggs;
-            return (
-              <div key={i} className="egg-slot">
-                <div className="egg-dimple" />
-                {filled && (
-                  <div className="egg">
-                    <div className="egg-shine" />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="side-stat">
-        <div className="side-stat-num">
-          <span className="big">{savePct}</span>
-          <span className="mid">%</span>
-        </div>
-        <div className="side-stat-cap">수입 대비 저축</div>
-      </div>
-
-      <div className="side-bar">
-        <div className="side-bar-fill save" style={{ width: `${savePct}%` }} />
-      </div>
-      <div className="side-foot">
-        <span>{eggs}/{goal}알</span>
-        <span className="streak">🔥 12일</span>
-      </div>
-
-      <ThemeMascot theme={theme} onToggle={onToggleTheme} />
-      {poolBadges && (
-        <YearBadgeStrip
-          badgeYear={poolBadges.year}
-          months={poolBadges.months}
-          winCount={poolBadges.winCount}
-          variant="compact"
-          badgeViewYear={badgeViewYear}
-          badgeYears={badgeYears}
-          onBadgeViewYearChange={onBadgeViewYearChange}
-        />
+    <div className="side-card top-expense-card">
+      <div className="side-eyebrow danger">TOP 지출</div>
+      {topExpenses.length === 0 && (
+        <div className="sc-empty-hint">지출 기록 없음</div>
       )}
+      {topExpenses.slice(0, 3).map((t, i) => {
+        const tier = tone(t.tier);
+        const amtText = formatFullWon(t.amount);
+        const amtSizeClass = amtText.length >= 9 ? "te-mini-amt--xs" : amtText.length >= 7 ? "te-mini-amt--sm" : "";
+        return (
+          <div key={i} className="te-mini-row">
+            <span
+              className="te-mini-rank"
+              style={{ background: tier.fill, color: tier.stroke, borderColor: tier.stroke }}
+            >
+              {i + 1}
+            </span>
+            <span className="te-mini-cat">{t.cat}</span>
+            <span className={`te-mini-amt ${amtSizeClass}`}>{amtText}원</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ── RIGHT PANEL: ANGER ROOM + TOP EXPENSES ─────────────────────
-function AngerRoomPanel({ angerPct, topExpenses, onOpenList, balance = 0, overSpend = 0 }) {
-  // simulate bubbling chicks count
-  const bubbles = Math.min(5, Math.ceil(angerPct / 22));
+// ── RIGHT PANEL: 황금알 카드 (UI만 — 로직은 추후) ───────────────
+function GoldenEggCard() {
   return (
-    <div className="side-panel anger-panel">
-      <div className="side-eyebrow danger">RAGE</div>
-      <div className="side-title">분노의<br/>방</div>
-
-      <div className="kettle">
-        <div className="kettle-glass">
-          <div className="kettle-fill" style={{ height: `${angerPct}%` }}>
-            <div className="kettle-fill-shine" />
-            {/* boiling chicks */}
-            <div className="kettle-chicks">
-              {Array.from({ length: bubbles }).map((_, i) => (
-                <img
-                  key={i}
-                  src={CHICK_IMG.spendNu}
-                  alt=""
-                  className={`bubble-chick bc${i}`}
-                  style={{ animationDelay: `${i * 0.18}s` }}
-                />
-              ))}
-            </div>
-          </div>
-          {/* steam bubbles */}
-          <div className="steam s1" />
-          <div className="steam s2" />
-          <div className="steam s3" />
-          {/* measure marks */}
-          {[25, 50, 75].map((p) => (
-            <div key={p} className="kettle-mark" style={{ bottom: `${p}%` }}>
-              <span>{p}</span>
-            </div>
-          ))}
-          {/* danger cap */}
-          <div className="kettle-cap" />
-        </div>
-      </div>
-
-      <div className="side-stat">
-        <div className="side-stat-num">
-          <span className="big danger">{angerPct}</span>
-          <span className="mid">%</span>
-        </div>
-        <div className="side-stat-cap">분노 게이지</div>
-      </div>
-
-      <div className="top-exp-mini">
-        <div className="top-exp-head">지출 TOP 3</div>
-        {topExpenses.map((t, i) => {
-          const tier = tone(t.tier);
-          return (
-            <div key={i} className="te-row">
-              <div className="te-rank" style={{ background: tier.fill, color: tier.stroke, borderColor: tier.stroke }}>
-                {i + 1}
-              </div>
-              <div className="te-body">
-                <div className="te-cat">
-                  {teCatLines(t.cat).map((line, j) => (
-                    <span key={j} className="te-cat-line">{line}</span>
-                  ))}
-                </div>
-                <div className="te-amt">{formatKRW(t.amount)}</div>
-              </div>
-              <img src={CHICK_IMG.spendNu} alt="" className="te-chick" />
-            </div>
-          );
-        })}
-        <button className="te-open-list" onClick={onOpenList}>
-          <img src={CHICK_IMG.save} alt="" className="te-open-chick" />
-          <span className="te-open-text">
-            <span className="te-open-line">항목보기</span>
-            <span className="te-open-line">/수정</span>
-          </span>
-          <span className="te-open-arrow">→</span>
-        </button>
-        <div className="te-cash-summary" aria-label="잔액 및 초과사용">
-          <div className="te-cash-row">
-            <span className="te-cash-label">잔액:</span>
-            <span className="te-cash-val num">{formatWon(balance)}</span>
-          </div>
-          <div className="te-cash-row">
-            <span className="te-cash-label">초과사용:</span>
-            <span className="te-cash-val num">{formatWon(overSpend)}</span>
-          </div>
-        </div>
-      </div>
+    <div className="side-card golden-egg-card">
+      <div className="side-eyebrow">황금알</div>
+      <img className="ge-egg-img" src={CHICK_IMG.goldEgg} alt="" draggable={false} />
+      <div className="ge-count"><span className="ge-count-num">0</span>개</div>
+      <div className="ge-hint">이번 달 목표까지<br/>안 닿으면 획득</div>
     </div>
   );
 }
@@ -653,17 +284,17 @@ function AppHeader({ income, gaugeIncome, expense, saving, ghostMode, onChipTap 
       <div className="stat-strip">
         <button className="stat-chip income tappable" onClick={() => onChipTap?.("income")}>
           <div className="chip-label">수입 <span className="chip-tap-hint">+</span></div>
-          <div className="chip-val">{formatKRW(income)}</div>
+          <div className="chip-val">{formatFullWon(income)}</div>
           <div className="chip-unit">원</div>
         </button>
         <button className="stat-chip spend tappable" onClick={() => onChipTap?.("spend")}>
           <div className="chip-label">지출 <span className="chip-pct">{expPct}%</span> <span className="chip-tap-hint">+</span></div>
-          <div className="chip-val">{formatKRW(expense)}</div>
+          <div className="chip-val">{formatFullWon(expense)}</div>
           <div className="chip-unit">원</div>
         </button>
         <button className="stat-chip save tappable" onClick={() => onChipTap?.("save")}>
           <div className="chip-label">저축 <span className="chip-pct">{savPct}%</span> <span className="chip-tap-hint">+</span></div>
-          <div className="chip-val">{formatKRW(saving)}</div>
+          <div className="chip-val">{formatFullWon(saving)}</div>
           <div className="chip-unit">원</div>
         </button>
       </div>
@@ -672,7 +303,7 @@ function AppHeader({ income, gaugeIncome, expense, saving, ghostMode, onChipTap 
 }
 
 // ── BOTTOM CONTROLS ────────────────────────────────────────────
-function Controls({ active, pool, nextThreshold, onRotate, onMoveLeft, onMoveRight, onDrop, onRescue, rescueAvailable }) {
+function Controls({ active, pool, nextThreshold, onRotate, onDrop, onOpenList }) {
   const t = active ? tone(active.tier) : tone("cyan");
   const isSave = active?.kind === "save";
 
@@ -713,7 +344,7 @@ function Controls({ active, pool, nextThreshold, onRotate, onMoveLeft, onMoveRig
 
   return (
     <div className={`controls ${active ? "has-active" : ""}`}>
-      {/* Active piece info — 활성 블록이 있을 때만 표시 (없을 땐 상단 PoolZone이 풀 상태 알림) */}
+      {/* Active piece info — 활성 블록이 있을 때만 표시 */}
       {active && (
         <div className={`active-card ${isSave ? "save-place" : "falling"}`} style={{
           borderColor: t.stroke,
@@ -735,40 +366,22 @@ function Controls({ active, pool, nextThreshold, onRotate, onMoveLeft, onMoveRig
               </span>
             </div>
           </div>
-          {!isSave && (
-            <div className="ac-right">
-              <button className="btn rotate-big" onClick={onRotate} aria-label="rotate">
-                <svg width="18" height="18" viewBox="0 0 16 16">
-                  <path d="M3.5 5.5A5 5 0 1 1 3 9.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
-                  <path d="M1 4l3-.5L3.5 6.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span>회전</span>
-              </button>
-            </div>
-          )}
+          <div className="ac-right">
+            <button className="btn rotate-big" onClick={onRotate} aria-label="rotate">
+              <svg width="18" height="18" viewBox="0 0 16 16">
+                <path d="M3.5 5.5A5 5 0 1 1 3 9.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+                <path d="M1 4l3-.5L3.5 6.5" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>회전</span>
+            </button>
+          </div>
         </div>
       )}
 
       {/* SIM 버튼 제거됨 — 이제 상단 칩 탭 → 바텀시트 입력으로 통합 */}
 
-      <div className={`ctrl-row ${isSave ? "save-mode" : ""}`}>
-        {isSave && (
-          <div className="dpad">
-            <button type="button" className="btn arrow" onClick={onMoveLeft} aria-label="left">←</button>
-            <button type="button" className="btn arrow rotate" onClick={onRotate} aria-label="rotate">↻</button>
-            <button type="button" className="btn arrow" onClick={onMoveRight} aria-label="right">→</button>
-            <button
-              type="button"
-              className="btn drop dpad-drop"
-              onClick={onDrop}
-              onTouchEnd={(e) => { e.preventDefault(); onDrop(); }}
-            >
-              <span className="drop-glyph">▼</span>
-              <span>DROP</span>
-            </button>
-          </div>
-        )}
-        {active && !isSave && (
+      <div className="ctrl-row">
+        {active && (
           <button
             type="button"
             className="btn drop wide"
@@ -782,76 +395,16 @@ function Controls({ active, pool, nextThreshold, onRotate, onMoveLeft, onMoveRig
 
         <button
           type="button"
-          className={`btn rescue ${rescueAvailable <= 0 ? "disabled" : ""} ${!active ? "solo" : ""}`}
-          onClick={onRescue}
-          disabled={rescueAvailable <= 0}
-          aria-label="rescue"
+          className={`btn open-list ${!active ? "solo" : ""}`}
+          onClick={onOpenList}
+          aria-label="항목 보기/수정"
         >
           <img src={CHICK_IMG.save} alt="" />
-          <div className="rescue-text">
-            <span className="rescue-title">저축 보상</span>
-            <span className="rescue-sub">{rescueAvailable}회 · 한 줄 삭제</span>
+          <div className="open-list-text">
+            <span className="open-list-title">항목 보기</span>
+            <span className="open-list-sub">/수정</span>
           </div>
         </button>
-      </div>
-    </div>
-  );
-}
-
-// ── POOL ZONE (공중 부양 합산 풀) ──────────────────────────────
-function PoolZone({ pool, nextThreshold, toast }) {
-  // 5천 원당 하나의 fragment, 최대 12개
-  const fragCount = Math.min(12, Math.max(0, Math.floor(pool / 5_000)));
-  const nextT = tone(nextThreshold.tier);
-  const progress = Math.min(100, Math.round(pool / nextThreshold.value * 100));
-
-  // fragment 위치 — 결정론적이지만 약간 흩어진 느낌
-  const frags = Array.from({ length: fragCount }).map((_, i) => {
-    const x = ((i * 37) % 100);
-    const y = ((i * 53) % 100);
-    const d = (i * 0.27) % 2.4;
-    return { x, y, d };
-  });
-
-  return (
-    <div className="pool-zone">
-      <div className="pool-header">
-        <span className="pool-eyebrow">공중 부양 풀</span>
-        <span className="pool-amt">{pool.toLocaleString()}원</span>
-      </div>
-      <div className="pool-cloud">
-        {frags.map((f, i) => (
-          <div
-            key={i}
-            className="pool-frag"
-            style={{
-              left: `${f.x}%`,
-              top: `${f.y}%`,
-              animationDelay: `${f.d}s`,
-              borderColor: nextT.stroke,
-              backgroundColor: nextT.fill,
-            }}
-          >
-            <img src={CHICK_IMG.spendNu} alt="" />
-          </div>
-        ))}
-        {toast && (
-          <div className={`pool-toast tier-${toast.tier}`} key={toast.t}>
-            <b>{TIER[toast.tier]?.label || "큰결제"}</b> 블록 실체화 → 낙하!
-          </div>
-        )}
-      </div>
-      <div className="pool-progress">
-        <div className="pool-pbar">
-          <div className="pool-pfill" style={{
-            width: `${progress}%`,
-            background: nextT.stroke,
-          }} />
-        </div>
-        <div className="pool-pcap">
-          다음 <b style={{ color: nextT.stroke }}>{TIER[nextThreshold.tier]?.label}</b> 까지
-          <span className="num"> {Math.max(0, nextThreshold.value - pool).toLocaleString()}</span>원
-        </div>
       </div>
     </div>
   );
@@ -1622,7 +1175,7 @@ function SwipeableListRow({ onEdit, onDelete, accentColor, children }) {
   };
 
   return (
-    <div className={`list-row-swipe${isFinePointer ? " list-row-swipe--fine" : ""}`}>
+    <div className={`list-row-swipe${isFinePointer ? " list-row-swipe--fine" : ""}${offset !== 0 ? " list-row-swipe--open" : ""}`}>
       {!isFinePointer && (
         <button
           type="button"
@@ -1782,7 +1335,7 @@ function TransactionListSheet({ transactions, onClose, onEdit, onDelete }) {
   );
 }
 Object.assign(window, {
-  Board, EggCartonPanel, AngerRoomPanel, AppHeader, Controls, BottomNav, PoolZone, BottomSheet,
-  TransactionListSheet, ThemeMascot, YearBadgeStrip, Landing,
+  Board, AppHeader, Controls, BottomNav, BottomSheet,
+  TransactionListSheet, BalanceCard, TopExpenseCard, GoldenEggCard,
 });
 })();

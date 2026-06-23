@@ -73,7 +73,23 @@ function mkTx(type, amount, id, createdAt) {
   assert(cells >= 20, `500k spend should fill ~26 cells, got ${cells}`);
 }
 
-// 4) 저축률 40% — sumTxTotals
+// 4) 소액 지출 — 보드 칸 0이면 풀에만 적립
+{
+  const txs = [mkTx("income", 2_500_000, "i", 0), mkTx("spend", 1_200, "e", 1)];
+  const d = deriveGameState(txs);
+  assert(d.pool === 1_200, `small spend pool only: expected 1200, got ${d.pool}`);
+  assert(countOccupiedCells(d.grid) === 0, "no cells when volume rounds to 0");
+}
+
+// 5) 소액 지출 — 칸 1개 필요 시 낱알, 풀 소진
+{
+  const txs = [mkTx("income", 300_000, "i", 0), mkTx("spend", 1_200, "e", 1)];
+  const d = deriveGameState(txs);
+  assert(d.pool === 0, `mono drains pool: got ${d.pool}`);
+  assert(countOccupiedCells(d.grid) === 1, `one mono cell, got ${countOccupiedCells(d.grid)}`);
+}
+
+// 6) 저축률 40% — sumTxTotals
 {
   const txs = [mkTx("income", 2_500_000, "i", 0), mkTx("save", 1_000_000, "s", 1)];
   const t = sumTxTotals(txs);

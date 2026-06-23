@@ -24,27 +24,12 @@ const fmtKRW = (n) => {
   return n.toLocaleString();
 };
 
+/** 구글폼 피드백 — 응답용 viewform URL */
+const FEEDBACK_FORM_URL =
+  "https://docs.google.com/forms/d/e/1FAIpQLSfTk21M6_RX-cIjkJgqOupABJOIXkFZfWHvx6GZVLkYkGF6KQ/viewform";
+
 // ── STATS SCREEN ────────────────────────────────────────────────
-function StatsScreen({
-  transactions, income, expense, poolBadges,
-  badgeViewYear, badgeYears, onBadgeViewYearChange,
-}) {
-  // RED 회고: categoryTop === "RED" 인 항목
-  const redItems = transactions
-    .filter((t) => t.type === "spend" && t.categoryTop === "RED")
-    .sort((a, b) => b.amount - a.amount);
-  const redTotal = redItems.reduce((s, t) => s + t.amount, 0);
-  const redPct   = income > 0 ? Math.round(redTotal / income * 100 * 10) / 10 : 0;
-  const topRed   = redItems.slice(0, 3);
-
-  const recapQuote = redTotal === 0
-    ? "이번 달은 RED가 0원이야. 병아리가 평온하게 잠들겠는데?"
-    : redTotal < 30_000
-      ? "충동 지출이 잘 통제됐어. 이 페이스를 유지해 보자."
-      : redTotal < 100_000
-        ? "RED 라벨이 슬슬 쌓이고 있어. 커피·택시는 의식적으로 줄여 보자."
-        : "후회가 큰 항목이 꽤 쌓였어. 한 번 돌아보고 다음 주는 조정해 보자.";
-
+function StatsScreen({ transactions }) {
   // 카테고리 도넛 (top 별 합계)
   const byTop = {};
   transactions.filter((t) => t.type === "spend").forEach((t) => {
@@ -69,50 +54,6 @@ function StatsScreen({
 
   return (
     <div className="app-screen">
-      {poolBadges && (
-        <window.YearBadgeStrip
-          badgeYear={poolBadges.year}
-          months={poolBadges.months}
-          winCount={poolBadges.winCount}
-          variant="card"
-          badgeViewYear={badgeViewYear}
-          badgeYears={badgeYears}
-          onBadgeViewYearChange={onBadgeViewYearChange}
-        />
-      )}
-
-      {/* RED 회고 카드 */}
-      <div className="red-recap">
-        <div className="rr-head">
-          <div>
-            <div className="rr-eyebrow">RED · 회고 카드</div>
-            <div className="rr-title">충동·후회 지출을<br/>이만큼 했어요</div>
-          </div>
-          <div className="rr-chick">
-            <img src={redTotal > 50_000 ? CHICK.ghostNu : CHICK.spendNu} alt="" />
-          </div>
-        </div>
-        <div>
-          <span className="rr-big">{redTotal.toLocaleString()}</span>
-          <span className="rr-big-unit">원 · 수입의 {redPct}%</span>
-        </div>
-        <div className="rr-sub">5월 1일 ~ 26일 · {redItems.length}건</div>
-
-        {topRed.length > 0 && (
-          <div className="rr-top-items">
-            {topRed.map((t) => (
-              <div key={t.id} className="rr-item">
-                <span className="rr-item-dot" />
-                <span className="rr-item-cat">{t.categorySub}</span>
-                <span className="rr-item-amt">{t.amount.toLocaleString()}원</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="rr-quote">{recapQuote}</div>
-      </div>
-
       {/* 카테고리 도넛 */}
       <div className="screen-section">
         <div className="section-eyebrow">CATEGORY · DONUT</div>
@@ -154,44 +95,50 @@ function StatsScreen({
 // ── PROFILE SCREEN ──────────────────────────────────────────────
 function ProfileScreen({
   income, onIncomeChange,
-  savingsGoalPct, onSavingsGoalChange,
   totalEggs,
-  theme, onToggleTheme, onSetTheme, onReplayLanding,
   onExportJsonBackup, onImportJsonBackup, onExportCsv,
   transactionCount = 0,
 }) {
   const importInputRef = useRef(null);
   const thresholds = getThresholds(income);
-  const THEMES = [
-    { id: "dark",   name: "밤",  img: CHICK.night, desc: "딥 네이비" },
-    { id: "light",  name: "낮",  img: CHICK.day,   desc: "크림 라이트" },
-  ];
 
   return (
     <div className="app-screen">
-      {/* 프로필 카드 */}
-      <div className="profile-card">
-        <div className="pf-avatar">
-          <img src={CHICK.save} alt="" />
-        </div>
-        <div className="pf-meta">
-          <div className="pf-name">병아리지기 🐤</div>
-          <div className="pf-since">since 2026.01 · 5개월째</div>
-          <div className="pf-stats">
-            <div>
-              <div className="pf-stat-num">{totalEggs}</div>
-              <div className="pf-stat-cap">누적 알</div>
-            </div>
-            <div>
-              <div className="pf-stat-num">12</div>
-              <div className="pf-stat-cap">최장 스트릭</div>
-            </div>
-            <div>
-              <div className="pf-stat-num">{Math.round(income / 10_000)}</div>
-              <div className="pf-stat-cap">월 수입(만)</div>
+      <div className="profile-hero-row">
+        <div className="profile-card profile-card--main">
+          <div className="pf-avatar">
+            <img src={CHICK.save} alt="" />
+          </div>
+          <div className="pf-meta">
+            <div className="pf-name">병아리지기 🐤</div>
+            <div className="pf-since">since 2026.01 · 5개월째</div>
+            <div className="pf-stats">
+              <div>
+                <div className="pf-stat-num">{totalEggs}</div>
+                <div className="pf-stat-cap">누적 알</div>
+              </div>
+              <div>
+                <div className="pf-stat-num">12</div>
+                <div className="pf-stat-cap">최장 스트릭</div>
+              </div>
+              <div>
+                <div className="pf-stat-num">{Math.round(income / 10_000)}</div>
+                <div className="pf-stat-cap">월 수입(만)</div>
+              </div>
             </div>
           </div>
         </div>
+        <a
+          className="profile-card profile-feedback-card"
+          href={FEEDBACK_FORM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="피드백 설문 열기"
+        >
+          <span className="pfb-icon" aria-hidden="true">📝</span>
+          <span className="pfb-title">피드백</span>
+          <span className="pfb-sub">1분 설문</span>
+        </a>
       </div>
 
       {/* 월 수입 설정 + 임계값 미리보기 (블록 크기) */}
@@ -207,14 +154,14 @@ function ProfileScreen({
           <input
             type="range"
             className="sr-slider"
-            min={1_000_000}
+            min={0}
             max={10_000_000}
             step={100_000}
-            value={income}
+            value={Math.max(0, income)}
             onChange={(e) => onIncomeChange(parseInt(e.target.value, 10))}
           />
           <div className="sr-hint">
-            수입에 따라 <b>블록 크기(임계값)</b>가 자동 조정돼요 — 어느 수입이든 한 블록이 비슷한 비중을 차지하도록.
+            <b>상단 수입 칩</b>과 항상 연동돼요. 여기서 조절하면 수입 거래가 바뀌고, 블록·목표선·계란판도 같이 맞춰집니다.
           </div>
           <div className="threshold-preview">
             <div className="tp-chip cyan">
@@ -231,58 +178,12 @@ function ProfileScreen({
             </div>
           </div>
         </div>
-
-        <div className="setting-row">
-          <div className="sr-label">
-            <span>목표 저축률</span>
-            <span className="sr-val">{savingsGoalPct}%</span>
-          </div>
-          <input
-            type="range"
-            className="sr-slider"
-            min={5} max={50} step={5}
-            value={savingsGoalPct}
-            onChange={(e) => onSavingsGoalChange(parseInt(e.target.value, 10))}
-          />
-          <div className="sr-hint">
-            매달 수입의 <b>{savingsGoalPct}%</b>({fmtKRW(income * savingsGoalPct / 100)}원)를 계란판에 채우는 게 목표예요.
-          </div>
-        </div>
       </div>
 
-      {/* 테마 + 백업 */}
+      {/* 백업 */}
       <div className="screen-section">
         <div className="section-eyebrow">PREFERENCES</div>
         <div className="section-title">기본 설정</div>
-
-        <div className="setting-row">
-          <div className="sr-label"><span>테마</span></div>
-          <div className="theme-picker">
-            {THEMES.map((th) => (
-              <button
-                key={th.id}
-                className={`theme-opt ${theme === th.id ? "active" : ""}`}
-                onClick={() => onSetTheme(th.id)}
-              >
-                <img src={th.img} alt="" className="theme-opt-chick" />
-                <span className="theme-opt-name">{th.name}</span>
-                <span className="theme-opt-desc">{th.desc}</span>
-              </button>
-            ))}
-          </div>
-          <div className="sr-hint">좌측 병아리를 탭해도 밤 ↔ 낮으로 바뀌어요.</div>
-        </div>
-
-        <div style={{ height: 8 }} />
-
-        <button className="action-btn" onClick={onReplayLanding}>
-          <div className="ab-icon" style={{ background: "rgba(255, 232, 153, 0.18)" }}>🐣</div>
-          <div className="ab-body">
-            <div>시작 화면 다시 보기</div>
-            <div className="ab-sub">첫 랜딩 페이지를 한 번 더 볼래요</div>
-          </div>
-          <span className="ab-arrow">›</span>
-        </button>
 
         <div style={{ height: 8 }} />
 
