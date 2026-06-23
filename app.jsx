@@ -761,6 +761,13 @@ function App() {
     );
   }, [transactions]);
 
+  /** ★ 테스트용 — 배포 전까지만. 넣어둔 거래(수입·지출·저축)를 전부 비움 */
+  const resetTestAmounts = useCallback(() => {
+    if (!window.confirm("지금까지 넣은 수입·지출·저축 금액을 전부 지울까요?")) return;
+    setTransactions([]);
+    recomputeFromTransactions([]);
+  }, [recomputeFromTransactions]);
+
   const importJsonBackup = useCallback((file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -858,6 +865,7 @@ function App() {
                 onExportJsonBackup={exportJsonBackup}
                 onImportJsonBackup={importJsonBackup}
                 onExportCsv={exportCsv}
+                onResetTestAmounts={resetTestAmounts}
                 transactionCount={transactions.length}
               />
             )}

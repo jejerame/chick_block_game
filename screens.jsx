@@ -96,7 +96,7 @@ function StatsScreen({ transactions }) {
 function ProfileScreen({
   income, onIncomeChange,
   totalEggs,
-  onExportJsonBackup, onImportJsonBackup, onExportCsv,
+  onExportJsonBackup, onImportJsonBackup, onExportCsv, onResetTestAmounts,
   transactionCount = 0,
 }) {
   const importInputRef = useRef(null);
@@ -233,6 +233,17 @@ function ProfileScreen({
             <div className="ab-sub">엑셀용 · 거래 목록만</div>
           </div>
           <span className="ab-arrow">⤓</span>
+        </button>
+
+        <div style={{ height: 8 }} />
+
+        <button type="button" className="action-btn" onClick={() => onResetTestAmounts?.()}>
+          <div className="ab-icon" style={{ background: "rgba(255, 167, 175, 0.18)" }}>🧪</div>
+          <div className="ab-body">
+            <div>테스트 금액 초기화</div>
+            <div className="ab-sub">넣어둔 수입·지출·저축 전부 삭제 · 배포 전 임시</div>
+          </div>
+          <span className="ab-arrow">↺</span>
         </button>
       </div>
     </div>
