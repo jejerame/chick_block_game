@@ -263,11 +263,14 @@ function GoldenEggCard() {
 function SmallSpendBubble({ bubble }) {
   if (!bubble) return null;
   return (
-    <div className="small-spend-bubble" key={bubble.t}>
-      <div className="ssb-egg-wrap">
-        <img className="ssb-egg-img" src={CHICK_IMG.egg} alt="" draggable={false} />
+    <div className="ssb-overlay" key={bubble.t}>
+      <div className="ssb-backdrop" />
+      <div className="ssb-bubble">
+        <div className="ssb-mono-cell">
+          <img className="ssb-egg-img" src={CHICK_IMG.egg} alt="" draggable={false} />
+        </div>
+        <div className="ssb-text">만원 이하 금액은<br/>쌓이고 있어요</div>
       </div>
-      <div className="ssb-text">만원 이하 금액은<br/>쌓이고 있어요</div>
     </div>
   );
 }
