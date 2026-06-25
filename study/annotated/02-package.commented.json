@@ -1,0 +1,29 @@
+{
+  "_【이 파일 설명】": "Node.js 프로젝트 설정. npm 명령어가 뭘 할지 적어 둔 곳입니다. JSON이라 // 주석은 공식적으로 안 되지만, _ 로 시작하는 가짜 키로 설명을 넣었습니다.",
+
+  "name": "chick-block-ledger",
+  "_name": "프로젝트 이름 (npm 패키지 이름)",
+
+  "private": true,
+  "_private": "true = 실수로 인터넷에 공개 배포하지 않겠다는 뜻",
+
+  "scripts": {
+    "_scripts": "터미널에서 npm run ??? 할 때 실행할 명령",
+
+    "build": "node scripts/build.mjs",
+    "_build": "app.jsx, game-data.jsx 등 → dist/ 폴더로 변환(바벨). 브라우저는 dist만 읽음",
+
+    "test": "npm run build && node scripts/test-volume.mjs",
+    "_test": "빌드 후 보드 부피·풀 규칙이 깨졌는지 자동 검사"
+  },
+
+  "devDependencies": {
+    "_devDependencies": "개발할 때만 필요한 도구 (실제 앱 실행에는 브라우저만 있으면 됨)",
+
+    "@babel/core": "^7.26.9",
+    "_babel_core": "JSX(React 문법)를 일반 JavaScript로 바꿔 주는 엔진",
+
+    "@babel/preset-react": "^7.26.3",
+    "_babel_preset_react": "React JSX 문법을 이해하게 하는 바벨 설정"
+  }
+}

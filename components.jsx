@@ -15,6 +15,9 @@ const CHICK_IMG = {
   night:   __R.chickNight   || "assets/chick_night.png",
   goldEgg: __R.goldEgg      || "assets/goldegg_nu.png",
   egg:     __R.egg          || "assets/egg.png",
+  navHome:  __R.tapIcon1    || "assets/tap_icon1.png",
+  navStats: __R.tapIcon2    || "assets/tap_icon2.png",
+  navMe:    __R.tapIcon3    || "assets/tap_icon3.png",
 };
 
 const formatKRW = (n) => {
@@ -240,14 +243,24 @@ function TopExpenseCard({ topExpenses = [] }) {
   );
 }
 
-// ── RIGHT PANEL: 황금알 카드 (UI만 — 로직은 추후) ───────────────
-function GoldenEggCard() {
+// ── RIGHT PANEL: 황금알 카드 ──────────────────────────────────
+// 가계부 시작일을 기준으로 매달(같은 날짜 주기) 적립. 완료된 달마다
+// "그 달 마지막 날 기준 지출 ≤ 목표 지출선"이면 +1개 — 중간에 한 번 넘었어도
+// 무관, 그 달 최종 결과만 본다. earned는 진행 중인 이번 달의 현재 추세 표시용.
+function GoldenEggCard({ count = 0, earned = true }) {
   return (
     <div className="side-card golden-egg-card">
       <div className="side-eyebrow">황금알</div>
-      <img className="ge-egg-img" src={CHICK_IMG.goldEgg} alt="" draggable={false} />
-      <div className="ge-count"><span className="ge-count-num">0</span>개</div>
-      <div className="ge-hint">이번 달 목표까지<br/>안 닿으면 획득</div>
+      <img
+        className={`ge-egg-img${earned ? "" : " ge-egg-img--dim"}`}
+        src={CHICK_IMG.goldEgg}
+        alt=""
+        draggable={false}
+      />
+      <div className="ge-count"><span className="ge-count-num">{count}</span>개</div>
+      <div className="ge-hint">
+        {earned ? <>이번 달 목표 지출선을<br/>안 넘었어요</> : <>이번 달 목표 지출선을<br/>넘었어요</>}
+      </div>
     </div>
   );
 }
@@ -1188,14 +1201,19 @@ function SwipeableListRow({ onEdit, onDelete, accentColor, children }) {
     setDeleteArmed(false);
   };
 
+  const [pcConfirm, setPcConfirm] = useState(false);
+
   const handlePcDelete = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (window.confirm("이 항목을 삭제할까요?")) {
-      onDelete();
-      setOffset(0);
-      setDeleteArmed(false);
-    }
+    setPcConfirm(true);
+  };
+
+  const confirmPcDelete = () => {
+    setPcConfirm(false);
+    onDelete();
+    setOffset(0);
+    setDeleteArmed(false);
   };
 
   return (
@@ -1233,15 +1251,27 @@ function SwipeableListRow({ onEdit, onDelete, accentColor, children }) {
           </button>
         )}
       </div>
+
+      {pcConfirm && (
+        <div className="pc-del-confirm-backdrop" onClick={() => setPcConfirm(false)}>
+          <div className="pc-del-confirm-card" onClick={(e) => e.stopPropagation()}>
+            <p className="pc-del-confirm-text">이 항목을 삭제할까요?</p>
+            <div className="pc-del-confirm-actions">
+              <button type="button" className="pc-del-confirm-btn cancel" onClick={() => setPcConfirm(false)}>취소</button>
+              <button type="button" className="pc-del-confirm-btn ok" onClick={confirmPcDelete}>삭제</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function BottomNav({ ghostMode, screen, onSelect }) {
   const items = [
-    { id: "home",   label: "홈",     icon: "▦" },
-    { id: "stats",  label: "통계",   icon: "▤" },
-    { id: "me",     label: "내 정보", icon: "◐" },
+    { id: "home",   label: "홈",     icon: CHICK_IMG.navHome },
+    { id: "stats",  label: "통계",   icon: CHICK_IMG.navStats },
+    { id: "me",     label: "내 정보", icon: CHICK_IMG.navMe },
   ];
   return (
     <div className="bottom-nav">
@@ -1251,7 +1281,7 @@ function BottomNav({ ghostMode, screen, onSelect }) {
           className={`nav-item ${screen === it.id ? "active" : ""}`}
           onClick={() => onSelect?.(it.id)}
         >
-          <span className="nav-icon">{it.icon}</span>
+          <img className="nav-icon" src={it.icon} alt="" draggable={false} />
           <span className="nav-label">{it.label}</span>
         </button>
       ))}

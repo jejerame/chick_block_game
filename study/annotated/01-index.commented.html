@@ -1,0 +1,132 @@
+<!--
+【이 파일이 하는 일】
+- 브라우저가 가장 먼저 여는 "문"입니다.
+- 실제 가계부 로직은 거의 없고, React 라이브러리와 우리 앱 번들을 불러옵니다.
+- 화면에 "불러오는 중…" 스플래시를 잠깐 보여 줍니다.
+-->
+<!doctype html>
+<!-- HTML5 문서라는 뜻 -->
+<html lang="ko">
+<!-- lang="ko" = 이 페이지는 한국어 페이지 -->
+
+<head>
+<!-- head = 눈에 안 보이는 설정 모음 -->
+
+<meta charset="utf-8" />
+<!-- 한글이 깨지지 않게 UTF-8 인코딩 -->
+
+<title>병아리 블록 가계부</title>
+<!-- 브라우저 탭에 보이는 제목 -->
+
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+<!-- 핸드폰 화면에 맞게 크기 조절 (모바일 필수) -->
+
+<meta name="apple-mobile-web-app-title" content="병아리 블록" />
+<!-- 아이폰 홈 화면에 추가했을 때 이름 -->
+
+<meta name="theme-color" content="#0B1130" />
+<!-- 상단 상태바 색 (진한 남색) -->
+
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+<link rel="icon" type="image/png" href="assets/apple-touch-icon.png" />
+<!-- 앱 아이콘 이미지 경로 -->
+
+<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+<!-- 글꼴·CDN을 미리 연결해서 로딩 빠르게 -->
+
+<link rel="stylesheet" href="styles.css?v=48" />
+<!-- 우리 앱 디자인 CSS. ?v=48 은 캐시 갱신용 버전 번호 -->
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" media="print" onload="this.media='all'" />
+<!-- Pretendard 한글 글꼴 (나중에 로드) -->
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'" />
+<!-- 숫자용 고정폭 글꼴 (금액 표시) -->
+
+<noscript>
+  <!-- 자바스크립트 꺼진 브라우저용 글꼴 백업 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" />
+</noscript>
+
+<style>
+  /* 앱이 로드되기 전 잠깐 보이는 "불러오는 중" 화면 스타일 */
+  #boot-splash {
+    min-height: 100vh;   /* 화면 전체 높이 */
+    min-height: 100svh;  /* 모바일 주소창 제외 높이 */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #0B1130;  /* 배경 남색 */
+    color: #FFE899;         /* 글자 노랑 */
+    font-family: system-ui, -apple-system, sans-serif;
+    text-align: center;
+    padding: 24px;
+  }
+  #boot-splash .boot-title { font-size: 18px; font-weight: 700; margin: 0; }
+  #boot-splash .boot-sub { font-size: 13px; color: #B7C9FF; margin: 0; opacity: 0.9; }
+  #boot-splash .boot-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #FFE899;
+    animation: boot-pulse 1s ease-in-out infinite; /* 깜빡이는 점 */
+  }
+  @keyframes boot-pulse { 0%,100%{opacity:.35;transform:scale(.85)} 50%{opacity:1;transform:scale(1)} }
+</style>
+
+<script>
+/*
+  【작은 스크립트】 React 로드 전에 실행
+  - 폰이면 native-device 클래스 붙임 → CSS가 풀스크린 모드로 바뀜
+  - visualViewport = 키보드 올라올 때 높이 맞춤
+*/
+(function () {
+  var root = document.documentElement; // <html> 태그
+  var standalone = !!(window.navigator.standalone || window.matchMedia("(display-mode: standalone)").matches);
+  root.classList.toggle("is-standalone", standalone); // 홈화면에 추가된 앱인지
+  root.classList.toggle("is-safari-browser", !standalone);
+  if (window.matchMedia("(max-width: 520px)").matches) root.classList.add("native-device"); // 좁은 화면 = 폰
+
+  function syncVv() {
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    root.style.setProperty("--vv-h", h + "px");       // CSS 변수로 높이 전달
+    root.style.setProperty("--vv-top", (vv ? vv.offsetTop : 0) + "px");
+  }
+  syncVv();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncVv);
+    window.visualViewport.addEventListener("scroll", syncVv);
+  }
+  window.addEventListener("resize", syncVv);
+})();
+</script>
+</head>
+
+<body>
+<!-- body = 실제로 화면에 그려지는 부분 -->
+
+<div id="root">
+  <!-- ★ React가 여기 안에 전체 앱을 그립니다 (app.jsx 마지막 줄) -->
+  <div id="boot-splash" aria-live="polite">
+    <p class="boot-title">병아리 블록 가계부</p>
+    <div class="boot-dot" aria-hidden="true"></div>
+    <p class="boot-sub">불러오는 중…</p>
+  </div>
+</div>
+
+<!-- defer = HTML 다 읽은 뒤 순서대로 실행 -->
+
+<script defer src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<!-- React 라이브러리 (화면을 부품으로 나눠 그리는 도구) -->
+
+<script defer src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<!-- ReactDOM = React 그림을 실제 웹페이지에 붙이는 도구 -->
+
+<script defer src="dist/chick.bundle.js?v=48"></script>
+<!-- ★ 우리 앱 전체 (game-data, app, components 등이 빌드되어 하나로 합쳐짐) -->
+<!-- 소스는 루트의 .jsx 파일들. 수정 후 npm run build 필요 -->
+
+</body>
+</html>

@@ -1,13 +1,36 @@
+/*
+╔══════════════════════════════════════════════════════════════════╗
+║  game-data.jsx — 학습용 주석판 (원본: 루트/game-data.jsx)        ║
+╠══════════════════════════════════════════════════════════════════╣
+║  【이 파일의 역할】                                               ║
+║  가계부 게임의 "법칙서 + 계산기"입니다.                           ║
+║  - 보드 크기, 티어, 풀 임계값, 도형 모양                          ║
+║  - 거래 목록 → 보드·풀·기절을 계산하는 deriveGameState ★핵심★    ║
+║  - 카테고리, 즐겨찾기 시드, 저장/백업                             ║
+║                                                                  ║
+║  【읽는 순서 추천】                                               ║
+║  1) 상수 COLS, ROWS, TIER_RATIO                                  ║
+║  2) targetBoardCells, getThresholds, applyPoolDeposit             ║
+║  3) simulateSpendStep → deriveGameState                          ║
+║  4) pickSmartCol, pickFillCell, hardenFullRows                   ║
+╚══════════════════════════════════════════════════════════════════╝
+*/
+
 /* global React */
 
 // ── BOARD CONSTANTS ────────────────────────────────────────────────
+/* 【시작】 즉시실행함수 — 안의 변수를 window.GAME 으로 밖에보냄 */
 window.GAME = (() => {
-  const COLS = 8;
-  const ROWS = 16;
-  const CELL = 26; // 미리보기: 22→26 (8×16 칸 수 동일 · 가독성·세로 여백)
+    // COLS = 가로 칸 수 (8칸)
+const COLS = 8;
+    // ROWS = 세로 칸 수 (16칸). 0행이 맨 위, 15행이 바닥
+const ROWS = 16;
+    // 한 칸 픽셀 크기
+const CELL = 26; // 미리보기: 22→26 (8×16 칸 수 동일 · 가독성·세로 여백)
   const GAP  = 1;
   const GOAL_ROW = 5;        // ★ 보드상 목표 지출선 — 고정 (게임 규칙, 5행)
-  const TARGET_SPEND_RATIO = 0.9; // 누적 수입의 90% = 지출 목표(금액). 초과 시 위험
+    // 수입의 80% = 지출 "목표" (넘으면 위험)
+const TARGET_SPEND_RATIO = 0.8; // 누적 수입의 80% = 지출 목표(금액). 초과 시 위험
   const SPAWN = { r: 0, c: 3 };
 
   // ── COLORS (pastel — dark tint cell + saturated border) ─────
@@ -21,7 +44,8 @@ window.GAME = (() => {
   };
 
   // ── TETROMINO ROTATIONS ──────────────────────────────────────
-  const SHAPES = {
+    // 블록 모양 — 각 도형마다 회전할 때 좌표 배열 (테트리스 조각)
+const SHAPES = {
     T: [
       [[0,1],[1,0],[1,1],[1,2]],
       [[0,1],[1,1],[1,2],[2,1]],
@@ -61,6 +85,8 @@ window.GAME = (() => {
   // MONO_MAX — syncGridToTarget top-up 참고 (풀 우회 규칙 폐기)
   const MONO_MAX = 20_000;
   const MONO_RED = 10_000;
+  
+  /* 【낱알 색】 지금은 항상 "red"(빨간 병아리). 예전엔 금액에 따라 흰/빨강 나뉨 */
   function monoSubtype(_amount) {
     return "red";
   }
@@ -69,6 +95,8 @@ window.GAME = (() => {
   //   우선순위 1) 덮인 구멍(hole) 중 가장 깊은 것 → 구멍 메우기
   //            2) 구멍이 없으면 높이가 가장 낮은 컴럼 맨 위
   // → 난알이 빈틈을 메워 표면이 평평해지고 보드 수명이 늘어난다.
+  
+  /* 【낱알 넣을 칸 찾기】 구멍(hole) 먼저 메우고, 없으면 가장 낮은 곳 */
   function pickFillCell(grid) {
     // 1) hole 탐색 (같은 컴럼에서 위에 차있는 칸이 있는 빈칸)
     let bestHole = null; // [r, c], r 클수록 깊음
@@ -102,6 +130,8 @@ window.GAME = (() => {
   // ★ 굳히기 — 완전히 꽉 찬 "지출" 줄을 회색 콘크리트로 굳힌다(영구).
   //   라인 클리어 대신: "쓴 돈은 화석처럼 남는다" 메타포.
   //   저축(save)만으로 채워진 줄은 굳히지 않음 → 저축 보상으로 클리어 가능하게 유지.
+  
+  /* 【줄 굳히기】 지출로 가로 한 줄이 꽉 차면 회색 콘크리트로 영구 고정 */
   function hardenFullRows(grid) {
     const ng = grid.map((row) => row.slice());
     const newlyHardened = [];
@@ -121,10 +151,14 @@ window.GAME = (() => {
       }
       if (rowChanged) { changed = true; newlyHardened.push(r); }
     }
-    return { grid: changed ? ng : grid, newlyHardened };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { grid: changed ? ng : grid, newlyHardened };
   }
 
   // Build initial board state — already-played pieces
+  
+  /* 【데모용 초기 보드】 예시 블록이 미리 쌓인 그리드 (지금은 거의 안 씀) */
   function makeInitGrid() {
     const g = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
     const put = (r, c, kind, tier, amount) => {
@@ -161,7 +195,40 @@ window.GAME = (() => {
     return g;
   }
 
+  /** 랜딩 캡처용 — 블록이 더 많이 쌓인 고정 스냅샷 (실제 거래 상태와 무관) */
+  
+  /* 【랜딩 화면용】 첫 화면에 보여줄 멋진 보드 스냅샷 */
+  function makeLandingHeroGrid() {
+    const g = makeInitGrid();
+    const piece = (kind, tier, amount, cells) => {
+      cells.forEach(([r, c]) => {
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+          g[r][c] = { kind, tier: tier || (kind === "save" ? "save" : "cyan"), amount: amount || 0 };
+        }
+      });
+    };
+    piece("spend", "cyan",   28000, [[8,0],[8,1],[9,0],[9,1]]);
+    piece("spend", "cyan",   32000, [[8,3],[8,4],[9,3],[9,4]]);
+    piece("spend", "cyan",   41000, [[7,6],[7,7],[8,6],[8,7]]);
+    piece("spend", "green",  78000, [[6,5],[6,6],[7,5],[7,6]]);
+    piece("spend", "green",  92000, [[6,2],[5,2],[5,3],[5,4]]);
+    piece("spend", "green",  88000, [[6,0],[5,0],[5,1],[4,1]]);
+    piece("spend", "orange", 198000, [[5,5],[4,5],[4,6],[4,7]]);
+    piece("spend", "orange", 245000, [[4,0],[4,1],[3,0],[3,1]]);
+    piece("spend", "orange", 310000, [[4,3],[3,3],[3,4],[2,4]]);
+    piece("spend", "red",    520000, [[3,5],[3,6],[2,5],[2,6],[1,5]]);
+    piece("spend", "red",    680000, [[2,2],[2,3],[1,2],[1,3],[0,2]]);
+    piece("spend", "blue",    8500, [[10,0],[10,1],[11,0]]);
+    piece("spend", "blue",   12000, [[10,4],[11,4],[11,5]]);
+    piece("spend", "blue",    6500, [[10,7],[11,7]]);
+    piece("save",  "save",   50000, [[14,2],[14,3],[13,3]]);
+    piece("save",  "save",   80000, [[15,5],[15,6],[14,6]]);
+    return hardenFullRows(g).grid;
+  }
+
   /** 빈 홈 1회 데모 — 목표 지출선(GOAL_ROW) 아래만 쌓음 → 기절(흰 병아리) 없음 */
+  
+  /* 【빈 홈 데모】 거래 없을 때 1회 보여주는 샘플 보드 */
   function makeEmptyHomePreviewGrid() {
     const g = makeBaseGrid();
     const piece = (kind, tier, amount, cells) => {
@@ -191,78 +258,38 @@ window.GAME = (() => {
   // 풀이 임계 금액을 넘는 순간 해당 티어의 블록이 자동 실체화 + 낙하한다.
   // ★ 임계값은 수입 비례. getThresholds(income) 로 동적 계산.
   //   포화 완화 튜닝: cyan 2% / green 4% / orange 18% (기존 1.5·3·15에서 상향)
-  const TIER_RATIO = { cyan: 0.02, green: 0.04, orange: 0.18 };
+    // 풀에서 블록 나오는 금액 비율 (수입 대비 %)
+const TIER_RATIO = { cyan: 0.02, green: 0.04, orange: 0.18 };
   const POOL_TIER_ORDER = ["orange", "green", "cyan"];
   const roundMan = (n) => {
     // 1만 단위로 반올림. 최소 1만.
     const r = Math.max(10_000, Math.round(n / 10_000) * 10_000);
     return r;
   };
+  
+  /* 【티어 임계값】 수입 × 2%/4%/18% → cyan/green/orange 금액 */
   function getThresholds(income) {
-    return {
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
       cyan:   roundMan(income * TIER_RATIO.cyan),
       green:  roundMan(income * TIER_RATIO.green),
       orange: roundMan(income * TIER_RATIO.orange),
     };
   }
 
-  /** 이번 달 지출 목표 금액 = 누적 수입 × 90% */
+  /** 이번 달 지출 목표 금액 = 누적 수입 × 80% */
+  
+  /* 【목표 지출 금액】 수입 × 80% */
   function getTargetSpend(income) {
     return Math.round(Math.max(0, income) * TARGET_SPEND_RATIO);
   }
 
-  /** 지출이 수입의 90%를 넘으면 예산 초과(위험) */
+  /** 지출이 수입의 80%를 넘으면 예산 초과(위험) */
+  
+  /* 【예산 초과?】 지출 합계가 수입의 80% 넘었는지 */
   function isOverBudget(expense, income) {
     return expense >= getTargetSpend(income);
-  }
-
-  function parseISODate(iso) {
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d);
-  }
-  function addMonths(date, n) {
-    return new Date(date.getFullYear(), date.getMonth() + n, date.getDate());
-  }
-
-  /**
-   * 황금알 — 가계부 시작일(최초 거래일)을 기준으로 매달 같은 날짜를 주기로 반복.
-   * 완료된 달마다 "그 달 지출 ≤ 그 달 수입의 TARGET_SPEND_RATIO"면 1개 적립.
-   * 중간에 목표선을 넘었어도 그 달 마지막 날 기준 수치만 본다(과정 무관, 최종 결과만).
-   * 진행 중인(아직 안 끝난) 달은 적립 집계에서 빼고, 지금까지 추세만 currentOnTrack으로 알려줌.
-   */
-  function deriveGoldenEggState(transactions) {
-    const dated = (transactions || []).filter((t) => t.date);
-    if (dated.length === 0) return { count: 0, currentOnTrack: true };
-
-    const anchor = dated.reduce((min, t) => {
-      const d = parseISODate(t.date);
-      return d < min ? d : min;
-    }, parseISODate(dated[0].date));
-
-    const now = new Date();
-    let count = 0;
-    let currentOnTrack = true;
-
-    for (let i = 0; ; i++) {
-      const start = addMonths(anchor, i);
-      const end = addMonths(anchor, i + 1);
-      let income = 0;
-      let expense = 0;
-      for (const t of dated) {
-        const d = parseISODate(t.date);
-        if (d >= start && d < end) {
-          if (t.type === "income") income += t.amount;
-          else if (t.type === "spend") expense += t.amount;
-        }
-      }
-      const ok = expense <= getTargetSpend(income);
-      if (end > now) {
-        currentOnTrack = ok;
-        break;
-      }
-      if (ok) count++;
-    }
-    return { count, currentOnTrack };
   }
   // 디폴트(320만 기준)는 기존 시각 호환용으로 유지 — 런타임에선 getThresholds 사용
   const TIER_THRESHOLD = getThresholds(3_200_000);
@@ -295,12 +322,18 @@ window.GAME = (() => {
    * 풀에 금액 합산 후 블록은 최대 1개만 실체화, 나머지는 pool carry.
    * 라이브 onSpend · recompute simSpend 공통.
    */
+  
+  /* 【풀에 돈 넣기】 임계 넘으면 블록 1개만 만들고 나머지는 풀에 남김 */
   function applyPoolDeposit(pool, amount, thresholds) {
     const cur = pool + amount;
     const tier = highestPoolTier(cur, thresholds);
-    if (!tier) return { pool: cur, tier: null, thresholdValue: 0 };
+    if (!tier) 
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { pool: cur, tier: null, thresholdValue: 0 };
     const thresholdValue = thresholds[tier];
-    return { pool: cur - thresholdValue, tier, thresholdValue };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { pool: cur - thresholdValue, tier, thresholdValue };
   }
 
   // ── Recompute (거래 → 보드/풀 결정론적 재시뮬레이션) ─────────────
@@ -335,10 +368,14 @@ window.GAME = (() => {
   }
 
   /** recompute 시작 보드 — 빈 그리드 (지출·저축 모두 거래 재생으로만 쌓음) */
+  
+  /* 【빈 보드】 16×8 전부 null */
   function makeBaseGrid() {
     return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
   }
 
+  
+  /* 【블록 즉시 착지 시뮬】 위에서 떨어뜨려 그리드에 박음 (derive용) */
   function simulateLock(grid, active) {
     const isSave = active.kind === "save";
     const variants = SHAPES[active.shape];
@@ -360,16 +397,24 @@ window.GAME = (() => {
         placed = true;
       }
     });
-    if (!placed) return { grid, landed: [] };
-    if (isSave) return { grid: newGrid, landed };
+    if (!placed) 
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { grid, landed: [] };
+    if (isSave) 
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { grid: newGrid, landed };
     const { grid: hardened } = hardenFullRows(newGrid);
-    return { grid: hardened, landed };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { grid: hardened, landed };
   }
 
   const AVG_CELLS_PER_BLOCK = 4;
   const BOARD_CELL_COUNT = ROWS * COLS;
 
   /** 보드에 실제 쌓인 지출·저축 셀 수 */
+  
+  /* 【채워진 칸 수】 병아리가 있는 칸 개수 */
   function countOccupiedCells(grid) {
     let n = 0;
     for (let r = 0; r < ROWS; r++) {
@@ -384,34 +429,47 @@ window.GAME = (() => {
    * (지출+저축)/수입 → 보드에 채울 총 셀 수.
    * 지출·저축을 각각 수입 대비 %로 잡으면 합이 100%를 넘어 보드가 과채워짐.
    */
+  
+  /* 【보드 목표 칸 수】 (지출+저축)/수입 비율 × 128칸 ★숫자와 보드 높이 연결★ */
   function targetBoardCells(income, expense, savings) {
     const inc = income > 0 ? income : DEFAULT_INCOME;
     const ratio = Math.min(1, Math.max(0, (expense + savings) / inc));
     return Math.round(ratio * BOARD_CELL_COUNT);
   }
 
-  /** 목표 셀 수까지 보정 — 항상 1칸 낱알 단위로만 (블록 통째로 끼우면 목표치 초과 — v49) */
+  /** 목표 셀 수까지 보정 — spend는 빨간 블록/낱알만 (amount=1 흰 기절 낱알 금지) */
+  
+  /* 【칸 수 맞추기】 derive가 목표 칸까지 부족하면 블록/낱알 추가 */
   function syncGridToTarget(grid, targetTotal, kind) {
     let g = grid;
     let guard = 0;
     while (countOccupiedCells(g) < targetTotal && guard++ < BOARD_CELL_COUNT) {
       const before = countOccupiedCells(g);
-      const cell = pickFillCell(g);
-      if (!cell) break;
-      const [r, c] = cell;
-      const ng = cloneGrid(g);
       if (kind === "save") {
+        const cell = pickFillCell(g);
+        if (!cell) break;
+        const [r, c] = cell;
+        const ng = cloneGrid(g);
         ng[r][c] = { kind: "save", tier: "save", amount: 1 };
         g = ng;
       } else {
-        ng[r][c] = {
-          kind: "spend",
-          tier: "blue",
-          mono: true,
-          subtype: "red",
-          amount: MONO_RED,
-        };
-        g = hardenFullRows(ng).grid;
+        const tryBlock = lockBlockOnGrid(g, "red", 50_000, "지출", `topup-${guard}`);
+        if (countOccupiedCells(tryBlock) > before) {
+          g = tryBlock;
+        } else {
+          const cell = pickFillCell(g);
+          if (!cell) break;
+          const [r, c] = cell;
+          const ng = cloneGrid(g);
+          ng[r][c] = {
+            kind: "spend",
+            tier: "blue",
+            mono: true,
+            subtype: "red",
+            amount: MONO_RED,
+          };
+          g = hardenFullRows(ng).grid;
+        }
       }
       if (countOccupiedCells(g) <= before) break;
     }
@@ -419,6 +477,8 @@ window.GAME = (() => {
   }
 
   /** 저축 — 이번 거래로 추가할 셀 수만큼 O 블록 즉시 착지 */
+  
+  /* 【저축 쌓기】 노란 O 블록을 시뮬로 바로 착지 */
   function placeSaveVolume(grid, cellsNeeded, amount, seedBase) {
     if (cellsNeeded <= 0) return grid;
     let g = grid;
@@ -447,6 +507,8 @@ window.GAME = (() => {
     return g;
   }
 
+  
+  /* 【낱알 1칸】 1×1 지출 셀 하나 끼워 넣기 */
   function placeMonoOnGrid(grid, amount) {
     const cell = pickFillCell(grid);
     if (!cell) return grid;
@@ -463,14 +525,18 @@ window.GAME = (() => {
   }
 
   /**
-   * 목표 지출선 행 — 수입의 90%(TARGET_SPEND_RATIO) 한도.
-   * 보드 전체=100% 수입, 선 위치=90% 지점(고정). 저축·현재 지출액과 무관.
+   * 목표 지출선 행 — 수입의 80%(TARGET_SPEND_RATIO) 한도.
+   * 보드 전체=100% 수입, 선 위치=80% 지점(고정). 저축·현재 지출액과 무관.
    */
+  
+  /* 【목표 지출선 행】 보드 위에서 80% 지점 = 몇 번째 줄인지 */
   function computeGoalRow() {
     return Math.max(1, Math.min(ROWS - 2, Math.round(ROWS * (1 - TARGET_SPEND_RATIO))));
   }
 
   /** 거래 1건 추가 시 derive 기준 보드에 새로 채울 셀 수 (라이브 그리드와 무관) */
+  
+  /* 【이번 거래로 늘 칸 수】 derive 기준, 라이브 보드와 무관 (v48) */
   function cellDeltaFromTxChange(prevTxs, nextTxs) {
     const prev = deriveGameState(prevTxs);
     const next = deriveGameState(nextTxs);
@@ -478,6 +544,8 @@ window.GAME = (() => {
   }
 
   /** 목표 지출선 위쪽(행 0 .. goalRow-1)에 지출 셀이 있으면 true — 선과 같은 행은 아직 안전 */
+  
+  /* 【선 넘었나?】 위험 구역(목표선 위)에 지출 셀이 있는지 */
   function gridSpendPastGoalRow(grid, goalRow) {
     const gr = goalRow != null ? goalRow : computeGoalRow();
     for (let r = 0; r < gr; r++) {
@@ -503,6 +571,8 @@ window.GAME = (() => {
     return g;
   }
 
+  
+  /* 【블록 한 덩어리 착지】 derive 경로에서 블록을 그리드에 바로 박음 */
   function lockBlockOnGrid(grid, tier, blockAmount, label, seedKey) {
     const rng = mulberry32(hashSeed(seedKey));
     const shape = pickShapeForSeeded(tier, rng);
@@ -523,6 +593,12 @@ window.GAME = (() => {
   /**
    * 지출 1건 — 풀 적립 → (큰 지출/red) → (풀 임계 블록) → (낱알 1칸씩) 순.
    * mutateGrid:false → 그리드는 건드리지 않고 liveBlocks·monoPlacements만 반환 (앱 애니메이션용).
+   */
+  
+  /*
+   * 【지출 1건 처리 ★핵심★】
+   * 순서: 풀 적립 → (대액이면 red블록) → (풀 임계 블록) → (낱알)
+   * mutateGrid:false 이면 그리드 안 바꾸고 계획만 반환 (app 애니메이션용)
    */
   function simulateSpendStep(grid, pool, amount, label, thresholds, seedBase, cellsNeeded, opts = {}) {
     const mutateGrid = opts.mutateGrid !== false;
@@ -593,7 +669,9 @@ window.GAME = (() => {
       spawnedMono = true;
     }
 
-    return {
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
       grid: g,
       pool: p,
       spawnedBlock,
@@ -607,13 +685,124 @@ window.GAME = (() => {
 
   function simSpend(grid, pool, amount, label, thresholds, seedBase, cellsNeeded) {
     const r = simulateSpendStep(grid, pool, amount, label, thresholds, seedBase, cellsNeeded);
-    return { grid: r.grid, pool: r.pool };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { grid: r.grid, pool: r.pool };
+  }
+
+  /** 해당 거래 묶음에서 풀→블록 실체화(applyPoolDeposit tier) 횟수 */
+  function countPoolSpawnsInTransactions(txs) {
+    const sorted = [...txs].sort((a, b) => a.createdAt - b.createdAt);
+    let income = 0;
+    let pool = 0;
+    let spawns = 0;
+    for (const tx of sorted) {
+      const effIncome = income > 0 ? income : DEFAULT_INCOME;
+      const th = getThresholds(effIncome);
+      if (tx.type === "income") {
+        income += tx.amount;
+      } else if (tx.type === "spend") {
+        pool += tx.amount;
+        if (tx.amount >= th.orange) {
+          spawns += 1;
+          pool = Math.max(0, pool - tx.amount);
+        } else {
+          const dep = applyPoolDeposit(pool - tx.amount, tx.amount, th);
+          pool = dep.pool;
+          if (dep.tier) spawns += 1;
+        }
+      }
+    }
+    return spawns;
+  }
+
+  /**
+   * 연간 풀 방어 트로피 — 달별 win(풀 스폰 0) / fail / pending(이번 달) / future
+   * 목표 지출선과 무관, 풀 실체화만 집계.
+   */
+  
+  /* 【연간 트로피】 매달 풀에서 블록 안 나온 달 = 성공 */
+  function deriveYearPoolBadges(transactions, year) {
+    const y = year != null ? year : new Date().getFullYear();
+    const now = new Date();
+    const curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, "0");
+      const ym = `${y}-${mm}`;
+      const txs = transactions.filter((t) => t.date && t.date.startsWith(ym));
+      const spawns = countPoolSpawnsInTransactions(txs);
+
+      let status;
+      if (y > now.getFullYear() || ym > curYm) {
+        status = "future";
+      } else if (ym === curYm) {
+        status = spawns === 0 ? "pending" : "fail";
+      } else if (txs.length === 0) {
+        status = "empty";
+      } else {
+        status = spawns === 0 ? "win" : "fail";
+      }
+      months.push({ month: m, ym, status, spawns });
+    }
+
+    const winCount = months.filter((x) => x.status === "win").length;
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { year: y, months, winCount };
+  }
+
+  const POOL_TROPHY_STORAGE_KEY = "chick.poolTrophy.v1";
+
+  function loadPoolTrophyStore() {
+    try {
+      const raw = localStorage.getItem(POOL_TROPHY_STORAGE_KEY);
+      if (!raw) 
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { years: {} };
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && parsed.years ? parsed : { years: {} };
+    } catch (_) {
+      
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { years: {} };
+    }
+  }
+
+  function savePoolTrophyYear(year, badgeData) {
+    try {
+      const store = loadPoolTrophyStore();
+      store.years[String(year)] = {
+        months: badgeData.months.map(({ month, ym, status, spawns }) => ({
+          month, ym, status, spawns,
+        })),
+        winCount: badgeData.winCount,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(POOL_TROPHY_STORAGE_KEY, JSON.stringify(store));
+    } catch (_) {}
+  }
+
+  function getPoolTrophyYearsFromStore() {
+    return Object.keys(loadPoolTrophyStore().years).map((y) => parseInt(y, 10)).filter(Boolean);
+  }
+
+  function collectBadgeYears(transactions) {
+    const years = new Set([new Date().getFullYear()]);
+    transactions.forEach((t) => {
+      if (t.date && t.date.length >= 4) years.add(parseInt(t.date.slice(0, 4), 10));
+    });
+    getPoolTrophyYearsFromStore().forEach((y) => years.add(y));
+    return [...years].sort((a, b) => b - a);
   }
 
   /**
    * 거래 목록(createdAt 순)으로 보드·풀·합계·골라인·기절 상태를 처음부터 재계산.
    * 편집/삭제 후 호출 — 동일 거래면 항상 동일 보드.
    */
+  
+  /* 【합계】 수입·지출·저축 금액 합 */
   function sumTxTotals(transactions) {
     let income = 0;
     let expense = 0;
@@ -623,11 +812,19 @@ window.GAME = (() => {
       else if (tx.type === "spend") expense += tx.amount;
       else if (tx.type === "save") savings += tx.amount;
     }
-    return { income, expense, savings };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { income, expense, savings };
   }
 
+  
+  /*
+   * 【★★★ 가장 중요 ★★★】
+   * 모든 거래를 처음부터 다시 재생해서
+   * grid, pool, expense, ghostMode 를 한 번에 계산.
+   * "정답 보드"는 여기 결과.
+   */
   function deriveGameState(transactions) {
-    resetZoneRotor(); // 동일 거래 재생 시 항상 동일 보드가 나오도록 매번 처음부터
     const sorted = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
     const totals = sumTxTotals(sorted);
     /** ★ 부피·임계값은 항상 최종 수입 합계 기준 (거래 순서와 무관) */
@@ -665,7 +862,9 @@ window.GAME = (() => {
     const ghostMode = isOverBudget(expense, finalIncome)
       || gridSpendPastGoalRow(grid, goalRowDyn);
 
-    return {
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
       grid,
       pool,
       income: finalIncome,
@@ -719,24 +918,28 @@ window.GAME = (() => {
       if (height > maxH) maxH = height;
     }
     for (let c = 0; c < COLS - 1; c++) bump += Math.abs(h[c] - h[c + 1]);
-    return { agg, holes, bump, maxH, h };
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return { agg, holes, bump, maxH };
   }
 
-  // 좌(0~2) / 중(3~4) / 우(5~7) — 평탄도 점수만 쓰면 도형이 섞일 때 가운데가 계속
-  // 유리해지는 편향이 있어, 차례마다 "이번엔 이 구역" 을 정해 그 구역 안에서만 최적
-  // 자리를 찾는다 (홀 생성 등 나쁜 자리는 여전히 피함). 그 구역에 둘 데가 전혀 없으면
-  // (도형이 구역보다 넓거나 구역이 막힘) 전체 보드에서 다시 찾는다. — v50
-  const ZONES = [[0, 1, 2], [3, 4], [5, 6, 7]];
-  let zoneRotor = 0;
-  function resetZoneRotor() { zoneRotor = 0; }
+  // grid + 도형 + 회전 상태로 최적의 base pos.c 를 반환
+  
+  /* 【똑똑한 열 선택】 한쪽으로 쏠리지 않게 가장 평평한 열에 블록 스폰 */
+  function pickSmartCol(grid, shape, rot) {
+    const variants = SHAPES[shape];
+    const cells = variants[(rot || 0) % variants.length];
+    const cs = cells.map((p) => p[1]);
+    const minC = Math.min(...cs);
+    const maxC = Math.max(...cs);
+    const w = maxC - minC + 1;
 
-  function bestColInRange(grid, cells, w, baseFilter) {
     let bestScore = Infinity;
-    let bestPosC = null;
+    let bestPosC = -minC;
+    let found = false;
 
     for (let base = 0; base <= COLS - w; base++) {
-      if (baseFilter && !baseFilter(base, base + w - 1)) continue;
-      const posC = base - cells.reduce((m, [, c]) => Math.min(m, c), 0);
+      const posC = base - minC;
       // 위에서 떨어뜨려 착지 행 계산
       let dr = 0;
       while (true) {
@@ -762,28 +965,10 @@ window.GAME = (() => {
       if (score < bestScore) {
         bestScore = score;
         bestPosC = posC;
+        found = true;
       }
     }
-    return bestPosC;
-  }
-
-  // grid + 도형 + 회전 상태로 최적의 base pos.c 를 반환
-  function pickSmartCol(grid, shape, rot) {
-    const variants = SHAPES[shape];
-    const cells = variants[(rot || 0) % variants.length];
-    const minC = cells.reduce((m, [, c]) => Math.min(m, c), 0);
-    const maxC = cells.reduce((m, [, c]) => Math.max(m, c), 0);
-    const w = maxC - minC + 1;
-
-    const zoneCols = ZONES[zoneRotor % ZONES.length];
-    zoneRotor++;
-    const inZone = (lo, hi) => lo >= zoneCols[0] && hi <= zoneCols[zoneCols.length - 1];
-
-    const zonePosC = bestColInRange(grid, cells, w, inZone);
-    if (zonePosC != null) return zonePosC;
-
-    const anyPosC = bestColInRange(grid, cells, w, null);
-    return anyPosC != null ? anyPosC : pickRandomCol(shape);
+    return found ? bestPosC : pickRandomCol(shape);
   }
 
   const PIECE_QUEUE = [
@@ -884,7 +1069,9 @@ window.GAME = (() => {
         if (strict) throw new Error(`거래 ${i + 1}번에 필수 항목이 빠졌어요.`);
         return null;
       }
-      return {
+      
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
         id: String(t.id),
         date: String(t.date),
         type: t.type,
@@ -897,6 +1084,8 @@ window.GAME = (() => {
   }
 
   /** localStorage 자동 저장용 — 새로고침 후 복원 */
+  
+  /* 【불러오기】 localStorage 에서 거래·즐겨찾기 복원 */
   function loadChickPersistState() {
     try {
       const raw = localStorage.getItem(CHICK_STATE_STORAGE_KEY);
@@ -904,7 +1093,9 @@ window.GAME = (() => {
       const data = JSON.parse(raw);
       if (!data || data.version !== CHICK_STATE_VERSION) return null;
       const transactions = normalizeTransactions(data.transactions, false);
-      return {
+      
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
         transactions,
         income: typeof data.income === "number" ? Math.max(0, data.income) : 0,
         savingsGoalPct: typeof data.savingsGoalPct === "number" ? data.savingsGoalPct : 20,
@@ -915,6 +1106,8 @@ window.GAME = (() => {
     }
   }
 
+  
+  /* 【저장하기】 400ms마다 app.jsx가 호출 */
   function saveChickPersistState({ transactions, income, savingsGoalPct, favorites }) {
     try {
       localStorage.setItem(CHICK_STATE_STORAGE_KEY, JSON.stringify({
@@ -928,8 +1121,10 @@ window.GAME = (() => {
     } catch (_) {}
   }
 
-  function buildChickBackup({ transactions, income, savingsGoalPct, favorites }) {
-    return {
+  function buildChickBackup({ transactions, income, savingsGoalPct, theme, favorites }) {
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
       version: CHICK_BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
       app: "chick-block-ledger",
@@ -937,6 +1132,7 @@ window.GAME = (() => {
         transactions: [...transactions],
         income,
         savingsGoalPct,
+        theme,
         favorites: favorites ? [...favorites] : [],
       },
     };
@@ -949,10 +1145,13 @@ window.GAME = (() => {
     }
     const data = raw.data || raw;
     const transactions = normalizeTransactions(data.transactions, true);
-    return {
+    
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
       transactions,
       income: typeof data.income === "number" ? data.income : DEFAULT_INCOME,
       savingsGoalPct: typeof data.savingsGoalPct === "number" ? data.savingsGoalPct : 20,
+      theme: data.theme === "light" ? "light" : "dark",
       favorites: Array.isArray(data.favorites) ? data.favorites : [],
     };
   }
@@ -993,12 +1192,15 @@ window.GAME = (() => {
     return `chick-backup-${stamp}.${ext}`;
   }
 
-  return {
+  
+  /* 【보내기】 window.GAME 에서 app.jsx가 꺼내 쓰는 목록 */
+return {
     COLS, ROWS, CELL, GAP, GOAL_ROW, SPAWN, SAVE_TONE, TIER, SHAPES,
-    makeInitGrid, makeEmptyHomePreviewGrid, makeBaseGrid, deriveGameState, sumTxTotals, PIECE_QUEUE,
+    makeInitGrid, makeLandingHeroGrid, makeEmptyHomePreviewGrid, makeBaseGrid, deriveGameState, sumTxTotals, deriveYearPoolBadges, countPoolSpawnsInTransactions,
+    loadPoolTrophyStore, savePoolTrophyYear, collectBadgeYears, POOL_TROPHY_STORAGE_KEY, PIECE_QUEUE,
     CHICK_BACKUP_VERSION, CHICK_STATE_STORAGE_KEY, loadChickPersistState, saveChickPersistState,
     buildChickBackup, parseChickBackup, transactionsToCSV, downloadTextFile, backupFilename,
-    TARGET_SPEND_RATIO, getTargetSpend, isOverBudget, deriveGoldenEggState,
+    TARGET_SPEND_RATIO, getTargetSpend, isOverBudget,
     TIER_THRESHOLD, TIER_RATIO, POOL_TIER_ORDER, getThresholds, applyPoolDeposit, DEFAULT_INCOME, SHAPE_BY_TIER, TIER_HINT_LABEL, pickShapeFor, pickRandomCol, pickSmartCol, centerColForShape,
     MONO_MAX, MONO_RED, monoSubtype, pickFillCell, hardenFullRows, simulateSpendStep,
     countOccupiedCells, targetBoardCells, AVG_CELLS_PER_BLOCK, computeGoalRow, gridSpendPastGoalRow, cellDeltaFromTxChange,
