@@ -290,6 +290,7 @@ function GhostFailBanner({ show }) {
       <div className="gfb-content">
         <img className="gfb-img" src={CHICK_IMG.ghostNu} alt="" draggable={false} />
         <div className="gfb-text">병아리 기절...<br/>이번 달 미션 실패<br/>목표 지출선을 넘었어요.</div>
+        <div className="gfb-subtext">입력은 계속할 수 있어요</div>
       </div>
     </div>
   );
